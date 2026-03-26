@@ -37,6 +37,9 @@ type SessionConfig struct {
 // tomlDuration is a time.Duration that unmarshals from a TOML string like "720h".
 type tomlDuration struct{ time.Duration }
 
+// ExportTomlDuration wraps d in a tomlDuration. Used only in tests.
+func ExportTomlDuration(d time.Duration) tomlDuration { return tomlDuration{d} }
+
 func (d *tomlDuration) UnmarshalText(b []byte) error {
 	dur, err := time.ParseDuration(string(b))
 	if err != nil {
