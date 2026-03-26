@@ -1,0 +1,58 @@
+{{template "base" .}}
+
+{{define "title"}}My Screenshots — Screenshotter{{end}}
+
+{{define "head"}}
+<style>
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+  .thumb-card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.15s;
+  }
+  .thumb-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+  .thumb-card a { display: block; text-decoration: none; color: inherit; }
+  .thumb-card img {
+    width: 100%;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    display: block;
+    background: #eee;
+  }
+  .thumb-card .card-label {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .empty { margin-top: 2rem; color: #888; }
+  h1 { font-size: 1.25rem; font-weight: 600; }
+</style>
+{{end}}
+
+{{define "content"}}
+<h1>Your screenshots</h1>
+{{if .Images}}
+  <div class="grid">
+    {{range .Images}}
+    <div class="thumb-card">
+      <a href="/{{.ID}}">
+        <img src="/thumb/{{.ID}}.png" alt="screenshot" loading="lazy">
+        <div class="card-label" title="{{.SourceURL}}">{{.SourceURL}}</div>
+      </a>
+    </div>
+    {{end}}
+  </div>
+{{else}}
+  <p class="empty">No screenshots yet. Take one with the browser extension!</p>
+{{end}}
+{{end}}

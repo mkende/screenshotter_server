@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS images_owner_created;
+DROP TABLE IF EXISTS images;
+DROP TABLE IF EXISTS users;

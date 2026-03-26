@@ -1,0 +1,81 @@
+# Screenshotter server configuration
+# Copy this file to config.toml and fill in the required fields.
+
+[server]
+# Public-facing base URL (no trailing slash). Used to build redirect URLs.
+domain = "https://screenshots.example.com"
+
+# Address and port to listen on. The server expects a reverse proxy (nginx,
+# Caddy, etc.) to handle TLS termination.
+listen = ":8080"
+
+# Directory where uploaded images and thumbnails are stored.
+# The server creates this directory and a "thumbs/" subdirectory if needed.
+storage_path = "/var/lib/screenshotter/images"
+
+# Maximum upload size in megabytes (default: 4).
+max_upload_mb = 4
+
+[id]
+# Length of the random alphanumeric image ID (default: 8, minimum: 4).
+length = 8
+
+[session]
+# HMAC-SHA256 signing secret for JWT session tokens.
+# Must be at least 32 characters. Generate with: openssl rand -hex 32
+secret = "replace-with-a-long-random-secret-at-least-32-chars"
+
+# How long a session remains valid (default: "720h" = 30 days).
+# Accepts Go duration strings: "24h", "7d" etc.
+ttl = "720h"
+
+[cors]
+# Chrome extension IDs allowed to make credentialed cross-origin requests.
+# Replace with your actual extension ID once it is known.
+# Multiple IDs can be listed (e.g. dev + production builds).
+extension_ids = ["<your-extension-id-here>"]
+
+[database]
+# Database backend: "sqlite" or "postgres".
+backend = "sqlite"
+
+# For SQLite: path to the .sqlite file.
+dsn = "/var/lib/screenshotter/db.sqlite"
+
+# For PostgreSQL, comment out the lines above and use:
+# backend = "postgres"
+# dsn = "postgres://user:password@localhost/screenshotter?sslmode=require"
+
+# ---------------------------------------------------------------------------
+# Authentication — exactly one backend must be configured.
+# ---------------------------------------------------------------------------
+
+[auth]
+# Active authentication backend: "oidc" or "tailscale".
+backend = "oidc"
+
+# --- OIDC (OpenID Connect) ---
+# The server acts as an OIDC Relying Party using the authorization-code flow
+# with PKCE. Register the following redirect URI with your identity provider:
+#
+#   https://<domain>/auth/callback
+#
+# Tested with Google, GitHub (via Dex), Keycloak, and any standard OIDC IdP.
+[auth.oidc]
+issuer_url    = "https://accounts.google.com"
+client_id     = "<your-client-id>"
+client_secret = "<your-client-secret>"
+
+# Scopes to request. Defaults to ["openid", "email", "profile"] if omitted.
+# scopes = ["openid", "email", "profile"]
+
+# --- Tailscale ---
+# When enabled, user identity is read from headers injected by the Tailscale
+# proxy (Tailscale-User-Login, Tailscale-User-Name). No explicit login step.
+# Switch to this section by setting auth.backend = "tailscale" above.
+[auth.tailscale]
+# Restrict header trust to specific source CIDRs (both IPv4 and IPv6 accepted).
+# Omit or leave empty to trust all source addresses (safe in a pure-Tailscale
+# deployment where the server is not reachable from the public internet).
+#
+# proxy_ips = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]

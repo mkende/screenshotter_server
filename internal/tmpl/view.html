@@ -1,0 +1,96 @@
+{{template "base" .}}
+
+{{define "title"}}Screenshot — Screenshotter{{end}}
+
+{{define "head"}}
+<style>
+  .image-wrap {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+    text-align: center;
+  }
+  .image-wrap img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+  }
+  .meta {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-top: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+  }
+  .meta .source {
+    flex: 1;
+    font-size: 0.875rem;
+    color: #555;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .meta .source a {
+    color: #1a73e8;
+    text-decoration: none;
+  }
+  .meta .source a:hover { text-decoration: underline; }
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.75rem;
+  }
+  .copied { opacity: 0.6; }
+</style>
+{{end}}
+
+{{define "content"}}
+<div class="image-wrap">
+  <img src="/{{.Image.ID}}.png" alt="screenshot">
+</div>
+
+<div class="meta">
+  <div class="source">
+    Source: <a href="{{.Image.SourceURL}}" target="_blank" rel="noopener noreferrer">{{.Image.SourceURL}}</a>
+  </div>
+  <div class="actions">
+    <button class="btn" onclick="copyText('{{.Image.SourceURL}}', this)">Copy source URL</button>
+    <button class="btn" onclick="copyText('{{.CurrentURL}}', this)">Copy link</button>
+    <a class="btn" href="/{{.Image.ID}}.png" target="_blank">View raw image</a>
+    {{if .IsOwner}}
+    <button class="btn btn-danger" onclick="deleteImage('{{.Image.ID}}')">Delete</button>
+    {{end}}
+  </div>
+</div>
+
+<script>
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+function deleteImage(id) {
+  if (!confirm('Delete this screenshot? This cannot be undone.')) return;
+  fetch('/' + id, { method: 'DELETE', credentials: 'same-origin' })
+    .then(r => {
+      if (r.ok) {
+        window.location.href = '/';
+      } else {
+        return r.json().then(j => { alert('Delete failed: ' + (j.error || r.status)); });
+      }
+    })
+    .catch(() => alert('Network error while deleting.'));
+}
+</script>
+{{end}}
