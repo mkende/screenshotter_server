@@ -1,82 +1,166 @@
 {{template "base" .}}
 
-{{define "title"}}Screenshot — Screenshotter{{end}}
+{{define "title"}}{{if .Image.Title}}{{.Image.Title}}{{else}}Unnamed screenshot{{end}} — Screenshotter{{end}}
 
 {{define "head"}}
 <style>
-  .image-wrap {
+  .image-box {
     background: #fff;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
+    border: 1px solid #dbdbdb;
+    border-radius: 6px;
     padding: 1rem;
-    margin-top: 1rem;
     text-align: center;
+    overflow: auto;
   }
-  .image-wrap img {
-    max-width: 100%;
-    height: auto;
-    border-radius: 4px;
-  }
-  .meta {
-    background: #fff;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    padding: 1rem 1.25rem;
+  .image-box img { max-width: 100%; height: auto; border-radius: 4px; }
+
+  /* Meta row below the image */
+  .meta-box {
     margin-top: 1rem;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: center;
+    flex-direction: column;
+    gap: 0.5rem;
   }
-  .meta .source {
-    flex: 1;
+  .meta-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .meta-title .title-text {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #363636;
+  }
+  .meta-title .title-unnamed { color: #aaa; font-style: italic; }
+  .source-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     font-size: 0.875rem;
     color: #555;
     overflow: hidden;
+  }
+  .source-row a {
+    color: #3273dc;
+    text-decoration: none;
+    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
   }
-  .meta .source a {
-    color: #1a73e8;
-    text-decoration: none;
+  .source-row a:hover { text-decoration: underline; }
+  .btn-copy-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #888;
+    padding: 0.1rem 0.25rem;
+    border-radius: 4px;
+    flex-shrink: 0;
   }
-  .meta .source a:hover { text-decoration: underline; }
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-top: 0.75rem;
-  }
-  .copied { opacity: 0.6; }
+  .btn-copy-icon:hover { color: #3273dc; background: #f0f4ff; }
+
+  /* Edit form */
+  #edit-form { margin-top: 1rem; }
+  #edit-form.is-hidden { display: none; }
+
+  /* Navbar toolbar button spacing */
+  .navbar-item .button + .button { margin-left: 0.4rem; }
 </style>
 {{end}}
 
+{{define "navbar-end"}}
+<div class="navbar-item">
+  <div class="buttons">
+    <button class="button is-light is-small"
+            title="Copy link: {{.CurrentURL}}"
+            onclick="copyText('{{.CurrentURL}}', this)">
+      <span class="icon is-small"><i class="fa fa-link"></i></span>
+      <span>Copy link</span>
+    </button>
+    {{if .IsOwner}}
+    <button class="button is-danger is-light is-small"
+            onclick="deleteImage('{{.Image.ID}}')">
+      <span class="icon is-small"><i class="fa fa-trash"></i></span>
+      <span>Delete</span>
+    </button>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
 {{define "content"}}
-<div class="image-wrap">
+<div class="image-box">
   <img src="/{{.Image.ID}}.png" alt="screenshot">
 </div>
 
-<div class="meta">
-  <div class="source">
-    Source: <a href="{{.Image.SourceURL}}" target="_blank" rel="noopener noreferrer">{{.Image.SourceURL}}</a>
-  </div>
-  <div class="actions">
-    <button class="btn" onclick="copyText('{{.Image.SourceURL}}', this)">Copy source URL</button>
-    <button class="btn" onclick="copyText('{{.CurrentURL}}', this)">Copy link</button>
-    <a class="btn" href="/{{.Image.ID}}.png" target="_blank">View raw image</a>
+<div class="meta-box">
+  <div class="meta-title">
+    {{if .Image.Title}}
+    <span class="title-text">{{.Image.Title}}</span>
+    {{else}}
+    <span class="title-text title-unnamed">Unnamed</span>
+    {{end}}
     {{if .IsOwner}}
-    <button class="btn btn-danger" onclick="deleteImage('{{.Image.ID}}')">Delete</button>
+    <button class="button is-ghost is-small" onclick="toggleEdit()" title="Edit title and source URL">
+      <span class="icon is-small"><i class="fa fa-pencil"></i></span>
+    </button>
     {{end}}
   </div>
+
+  <div class="source-row">
+    <span class="has-text-grey-light is-flex-shrink-0">Source:</span>
+    <a href="{{.Image.SourceURL}}" target="_blank" rel="noopener noreferrer"
+       title="{{.Image.SourceURL}}">{{.Image.SourceURL}}</a>
+    <button class="btn-copy-icon" onclick="copyText('{{.Image.SourceURL}}', this)"
+            title="Copy source URL">
+      <span class="icon is-small"><i class="fa fa-copy"></i></span>
+    </button>
+  </div>
+
+  {{if .IsOwner}}
+  <form id="edit-form" class="is-hidden" onsubmit="saveEdit(event)">
+    <div class="field">
+      <label class="label is-small">Title</label>
+      <div class="control">
+        <input id="edit-title" class="input is-small" type="text"
+               placeholder="Leave empty to clear the title"
+               value="{{if .Image.Title}}{{.Image.Title}}{{end}}">
+      </div>
+    </div>
+    <div class="field">
+      <label class="label is-small">Source URL</label>
+      <div class="control">
+        <input id="edit-source-url" class="input is-small" type="url" required
+               value="{{.Image.SourceURL}}">
+      </div>
+    </div>
+    <div class="field is-grouped">
+      <div class="control">
+        <button type="submit" class="button is-primary is-small">Save</button>
+      </div>
+      <div class="control">
+        <button type="button" class="button is-light is-small" onclick="toggleEdit()">Cancel</button>
+      </div>
+    </div>
+  </form>
+  {{end}}
 </div>
 
 <script>
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
-    const orig = btn.textContent;
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
+    const icon = btn.querySelector('i');
+    const span = btn.querySelector('span:not(.icon)');
+    if (icon) {
+      const orig = icon.className;
+      icon.className = 'fa fa-check';
+      setTimeout(() => { icon.className = orig; }, 1500);
+    } else if (span) {
+      const orig = span.textContent;
+      span.textContent = 'Copied!';
+      setTimeout(() => { span.textContent = orig; }, 1500);
+    }
   });
 }
 
@@ -91,6 +175,29 @@ function deleteImage(id) {
       }
     })
     .catch(() => alert('Network error while deleting.'));
+}
+
+function toggleEdit() {
+  const form = document.getElementById('edit-form');
+  form.classList.toggle('is-hidden');
+}
+
+function saveEdit(e) {
+  e.preventDefault();
+  const title = document.getElementById('edit-title').value.trim();
+  const sourceURL = document.getElementById('edit-source-url').value.trim();
+  fetch('/{{.Image.ID}}', {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, source_url: sourceURL }),
+  }).then(r => {
+    if (r.ok) {
+      window.location.reload();
+    } else {
+      return r.json().then(j => { alert('Save failed: ' + (j.error || r.status)); });
+    }
+  }).catch(() => alert('Network error while saving.'));
 }
 </script>
 {{end}}

@@ -154,9 +154,11 @@ func (d *DB) GetUser(ctx context.Context, id string) (*User, error) {
 
 // --- Image queries ---
 
+// Image represents a stored screenshot record.
 type Image struct {
 	ID        string
 	OwnerID   string
+	Title     *string // nil means no title has been set by the user
 	SourceURL string
 	FilePath  string
 	CreatedAt time.Time
@@ -177,8 +179,8 @@ func (d *DB) InsertImage(ctx context.Context, img Image) error {
 func (d *DB) GetImage(ctx context.Context, id string) (*Image, error) {
 	img := &Image{}
 	err := d.sql.QueryRowContext(ctx,
-		d.q(`SELECT id, owner_id, source_url, file_path, created_at FROM images WHERE id = ?`), id).
-		Scan(&img.ID, &img.OwnerID, &img.SourceURL, &img.FilePath, &img.CreatedAt)
+		d.q(`SELECT id, owner_id, title, source_url, file_path, created_at FROM images WHERE id = ?`), id).
+		Scan(&img.ID, &img.OwnerID, &img.Title, &img.SourceURL, &img.FilePath, &img.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -186,6 +188,19 @@ func (d *DB) GetImage(ctx context.Context, id string) (*Image, error) {
 		return nil, fmt.Errorf("get image: %w", err)
 	}
 	return img, nil
+}
+
+// UpdateImage sets the title (nil clears it) and source URL for an image owned
+// by ownerID. Returns false if not found or not owned by the caller.
+func (d *DB) UpdateImage(ctx context.Context, id, ownerID string, title *string, sourceURL string) (bool, error) {
+	res, err := d.sql.ExecContext(ctx,
+		d.q(`UPDATE images SET title = ?, source_url = ? WHERE id = ? AND owner_id = ?`),
+		title, sourceURL, id, ownerID)
+	if err != nil {
+		return false, fmt.Errorf("update image: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // DeleteImage removes an image owned by ownerID. Returns false if not found or not owned.
@@ -202,7 +217,7 @@ func (d *DB) DeleteImage(ctx context.Context, id, ownerID string) (bool, error) 
 // ListRecentImages returns up to limit images for ownerID, newest first.
 func (d *DB) ListRecentImages(ctx context.Context, ownerID string, limit int) ([]Image, error) {
 	rows, err := d.sql.QueryContext(ctx,
-		d.q(`SELECT id, owner_id, source_url, file_path, created_at
+		d.q(`SELECT id, owner_id, title, source_url, file_path, created_at
 		     FROM images WHERE owner_id = ? ORDER BY created_at DESC LIMIT ?`),
 		ownerID, limit)
 	if err != nil {
@@ -212,7 +227,7 @@ func (d *DB) ListRecentImages(ctx context.Context, ownerID string, limit int) ([
 	var imgs []Image
 	for rows.Next() {
 		var img Image
-		if err := rows.Scan(&img.ID, &img.OwnerID, &img.SourceURL, &img.FilePath, &img.CreatedAt); err != nil {
+		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Title, &img.SourceURL, &img.FilePath, &img.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan image row: %w", err)
 		}
 		imgs = append(imgs, img)

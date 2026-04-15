@@ -4,54 +4,34 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{block "title" .}}Screenshotter{{end}}</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, sans-serif;
-      background: #f5f5f5;
-      color: #222;
-      min-height: 100vh;
-    }
-    header {
-      background: #fff;
-      border-bottom: 1px solid #e0e0e0;
-      padding: 0.75rem 1.5rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    header a { text-decoration: none; color: inherit; font-weight: 600; font-size: 1.1rem; }
-    header nav { display: flex; gap: 1rem; align-items: center; font-size: 0.9rem; }
-    header nav a { color: #555; text-decoration: none; }
-    header nav a:hover { color: #000; }
-    main { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; }
-    .btn {
-      display: inline-block;
-      padding: 0.4rem 0.9rem;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-      background: #fff;
-      cursor: pointer;
-      font-size: 0.875rem;
-      text-decoration: none;
-      color: #333;
-      transition: background 0.15s;
-    }
-    .btn:hover { background: #f0f0f0; }
-    .btn-danger { border-color: #e53935; color: #e53935; }
-    .btn-danger:hover { background: #fff5f5; }
-  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   {{block "head" .}}{{end}}
 </head>
 <body>
-  <header>
-    <a href="/">Screenshotter</a>
-    <nav>
-      {{if .User}}<span>{{.User.DisplayName}}</span> · <a href="/auth/logout">Log out</a>{{end}}
-    </nav>
-  </header>
-  <main>
-    {{block "content" .}}{{end}}
+  <nav class="navbar is-white has-shadow" role="navigation" aria-label="main navigation">
+    <div class="navbar-brand">
+      <a class="navbar-item has-text-weight-semibold is-size-5" href="/">Screenshotter</a>
+    </div>
+    <div class="navbar-menu">
+      {{block "navbar-start" .}}{{end}}
+      <div class="navbar-end">
+        {{block "navbar-end" .}}{{end}}
+        {{if .User}}
+        <div class="navbar-item">
+          <span class="has-text-grey">{{.User.DisplayName}}</span>
+        </div>
+        <div class="navbar-item">
+          <a class="button is-light is-small" href="/auth/logout">Log out</a>
+        </div>
+        {{end}}
+      </div>
+    </div>
+  </nav>
+  <main class="section">
+    <div class="container">
+      {{block "content" .}}{{end}}
+    </div>
   </main>
 </body>
 </html>
