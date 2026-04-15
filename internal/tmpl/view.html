@@ -2,8 +2,14 @@
 
 {{define "title"}}{{if .Image.Title}}{{.Image.Title}}{{else}}Unnamed screenshot{{end}} — Screenshotter{{end}}
 
+{{define "container-class"}}is-fluid{{end}}
+
 {{define "head"}}
 <style>
+  /* --navbar-h must match the Bulma navbar default height (52px) plus the
+     section's padding-top (3rem = 48px) and the image-box padding (1rem). */
+  :root { --above-image: calc(52px + 3rem + 1rem); }
+
   .image-box {
     background: #fff;
     border: 1px solid #dbdbdb;
@@ -12,7 +18,15 @@
     text-align: center;
     overflow: auto;
   }
-  .image-box img { max-width: 100%; height: auto; border-radius: 4px; }
+  /* Display at natural size; scale down only when the image would overflow the
+     viewport width or the space below the navbar. Never scale up. */
+  .image-box img {
+    max-width: 100%;
+    max-height: calc(100svh - var(--above-image));
+    width: auto;
+    height: auto;
+    border-radius: 4px;
+  }
 
   /* Meta row below the image */
   .meta-box {
@@ -78,6 +92,10 @@
       <span class="icon is-small"><i class="fa fa-link"></i></span>
       <span>Copy link</span>
     </button>
+    <a class="button is-light is-small" href="/{{.Image.ID}}.png" download>
+      <span class="icon is-small"><i class="fa fa-download"></i></span>
+      <span>Download</span>
+    </a>
     {{if .IsOwner}}
     <button class="button is-danger is-light is-small"
             onclick="deleteImage('{{.Image.ID}}')">
