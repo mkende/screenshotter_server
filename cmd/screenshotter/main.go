@@ -22,8 +22,16 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "config.toml", "path to TOML config file")
+	configPath := flag.String("config", "", "path to TOML config file (default: $SCREENSHOTTER_CONFIG or config.toml)")
 	flag.Parse()
+
+	if *configPath == "" {
+		if env := os.Getenv("SCREENSHOTTER_CONFIG"); env != "" {
+			*configPath = env
+		} else {
+			*configPath = "config.toml"
+		}
+	}
 
 	if err := run(*configPath); err != nil {
 		slog.Error("fatal", "err", err)
