@@ -31,6 +31,9 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 
 // authenticate resolves claims from the request using whichever backend is active.
 func (s *Service) authenticate(r *http.Request) *Claims {
+	if s.anonymousSvc {
+		return anonymousClaims
+	}
 	if s.tsSvc != nil {
 		return s.tsSvc.claimsFromHeaders(r)
 	}

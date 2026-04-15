@@ -145,8 +145,11 @@ func validate(cfg *Config) error {
 				return fmt.Errorf("auth.tailscale.proxy_ips: invalid CIDR %q: %w", cidr, err)
 			}
 		}
+	case "anonymous":
+		// No additional config required; every request is authenticated as a
+		// fixed anonymous user. Intended for local testing only.
 	default:
-		return fmt.Errorf("auth.backend must be 'oidc' or 'tailscale'")
+		return fmt.Errorf("auth.backend must be 'oidc', 'tailscale', or 'anonymous'")
 	}
 	return nil
 }

@@ -18,10 +18,18 @@ const (
 
 // Service is the central auth object. Create via New.
 type Service struct {
-	cfg        *config.Config
-	signingKey []byte
-	oidcSvc    *oidcService    // non-nil when backend == "oidc"
-	tsSvc      *tailscaleService // non-nil when backend == "tailscale"
+	cfg         *config.Config
+	signingKey  []byte
+	oidcSvc     *oidcService      // non-nil when backend == "oidc"
+	tsSvc       *tailscaleService // non-nil when backend == "tailscale"
+	anonymousSvc bool             // true when backend == "anonymous"
+}
+
+// anonymousClaims is returned for every request in anonymous mode.
+var anonymousClaims = &Claims{
+	UserID:      "anonymous",
+	DisplayName: "Anonymous",
+	Email:       "anonymous@localhost",
 }
 
 // New initialises the auth service. For OIDC, it contacts the identity
@@ -44,6 +52,8 @@ func New(ctx context.Context, cfg *config.Config) (*Service, error) {
 			return nil, fmt.Errorf("tailscale init: %w", err)
 		}
 		s.tsSvc = svc
+	case "anonymous":
+		s.anonymousSvc = true
 	}
 	return s, nil
 }
