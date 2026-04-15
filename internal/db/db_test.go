@@ -330,7 +330,7 @@ func TestListRecentImages_OrderedNewestFirst(t *testing.T) {
 				}
 			}
 
-			imgs, err := b.db.ListRecentImages(ctx, "lister", 10)
+			imgs, err := b.db.ListRecentImages(ctx, "lister", 10, 0)
 			if err != nil {
 				t.Fatalf("ListRecentImages: %v", err)
 			}
@@ -363,7 +363,7 @@ func TestListRecentImages_LimitRespected(t *testing.T) {
 				}
 			}
 
-			imgs, err := b.db.ListRecentImages(ctx, "limiter", 3)
+			imgs, err := b.db.ListRecentImages(ctx, "limiter", 3, 0)
 			if err != nil {
 				t.Fatalf("ListRecentImages: %v", err)
 			}
@@ -389,7 +389,7 @@ func TestListRecentImages_OtherUsersNotReturned(t *testing.T) {
 				t.Fatalf("InsertImage: %v", err)
 			}
 
-			imgs, err := b.db.ListRecentImages(ctx, "user-y", 10)
+			imgs, err := b.db.ListRecentImages(ctx, "user-y", 10, 0)
 			if err != nil {
 				t.Fatalf("ListRecentImages: %v", err)
 			}

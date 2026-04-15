@@ -4,9 +4,11 @@
 
 {{define "head"}}
 <style>
+  /* max(160px, 100%/N) ensures at most N columns on wide screens while
+     gracefully reducing to fewer columns on narrow screens. */
   .screenshot-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(max(160px, calc(100% / var(--max-cols))), 1fr));
     gap: 1rem;
     margin-top: 1.5rem;
   }
@@ -44,7 +46,7 @@
 {{define "content"}}
 <h1 class="title is-5">Your screenshots</h1>
 {{if .Images}}
-  <div class="screenshot-grid">
+  <div class="screenshot-grid" style="--max-cols: {{.HomeCols}}">
     {{range .Images}}
     <a class="screenshot-card" href="/{{.ID}}">
       <img src="/thumb/{{.ID}}.png" alt="screenshot" loading="lazy">
@@ -54,6 +56,20 @@
     </a>
     {{end}}
   </div>
+  {{if or .HasPrev .HasNext}}
+  <nav class="pagination is-centered mt-5" role="navigation" aria-label="pagination">
+    {{if .HasPrev}}
+    <a class="pagination-previous" href="/?page={{.PrevPage}}">← Previous</a>
+    {{else}}
+    <a class="pagination-previous" disabled>← Previous</a>
+    {{end}}
+    {{if .HasNext}}
+    <a class="pagination-next" href="/?page={{.NextPage}}">Next →</a>
+    {{else}}
+    <a class="pagination-next" disabled>Next →</a>
+    {{end}}
+  </nav>
+  {{end}}
 {{else}}
   <p class="has-text-grey mt-4">No screenshots yet. Take one with the browser extension!</p>
 {{end}}

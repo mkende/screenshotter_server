@@ -6,10 +6,61 @@
 
 {{define "head"}}
 <style>
-  /* --navbar-h must match the Bulma navbar default height (52px) plus the
-     section's padding-top (3rem = 48px) and the image-box padding (1rem). */
-  :root { --above-image: calc(52px + 3rem + 1rem); }
+  /* Navbar meta area takes remaining width between brand and action buttons,
+     allowing the title and URL to truncate gracefully. */
+  #meta-view, #meta-edit {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0 0.75rem;
+  }
+  #meta-view .meta-title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+    max-width: 16rem;
+  }
+  #meta-view .meta-title.is-unnamed { color: #aaa; font-style: italic; }
+  #meta-view .sep { color: #ccc; flex-shrink: 0; }
+  #meta-view .meta-url {
+    color: #3273dc;
+    text-decoration: none;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex-shrink: 1;
+  }
+  #meta-view .meta-url:hover { text-decoration: underline; }
+  .btn-copy-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #888;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .btn-copy-icon:hover { color: #3273dc; background: #f0f4ff; }
 
+  /* Edit form inputs in the navbar share available space. */
+  #meta-edit input[type="text"] { flex: 1; min-width: 5rem; max-width: 14rem; }
+  #meta-edit input[type="url"]  { flex: 2; min-width: 8rem; }
+
+  /* Image fills the viewport below the navbar with minimal wasted space.
+     --above: navbar (52px) + section padding-top (3rem) + image-box padding (1rem).
+     --below: image-box padding-bottom (1rem) + section padding-bottom (3rem). */
+  :root {
+    --above: calc(52px + 3rem + 1rem);
+    --below: calc(1rem + 3rem);
+  }
   .image-box {
     background: #fff;
     border: 1px solid #dbdbdb;
@@ -18,69 +69,50 @@
     text-align: center;
     overflow: auto;
   }
-  /* Display at natural size; scale down only when the image would overflow the
-     viewport width or the space below the navbar. Never scale up. */
+  /* Scale down only when the image exceeds the available viewport space. */
   .image-box img {
     max-width: 100%;
-    max-height: calc(100svh - var(--above-image));
+    max-height: calc(100svh - var(--above) - var(--below));
     width: auto;
     height: auto;
     border-radius: 4px;
   }
-
-  /* Meta row below the image */
-  .meta-box {
-    margin-top: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .meta-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .meta-title .title-text {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #363636;
-  }
-  .meta-title .title-unnamed { color: #aaa; font-style: italic; }
-  .source-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.875rem;
-    color: #555;
-    overflow: hidden;
-  }
-  .source-row a {
-    color: #3273dc;
-    text-decoration: none;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
-  .source-row a:hover { text-decoration: underline; }
-  .btn-copy-icon {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: #888;
-    padding: 0.1rem 0.25rem;
-    border-radius: 4px;
-    flex-shrink: 0;
-  }
-  .btn-copy-icon:hover { color: #3273dc; background: #f0f4ff; }
-
-  /* Edit form */
-  #edit-form { margin-top: 1rem; }
-  #edit-form.is-hidden { display: none; }
-
-  /* Navbar toolbar button spacing */
-  .navbar-item .button + .button { margin-left: 0.4rem; }
 </style>
+{{end}}
+
+{{define "navbar-start"}}
+{{/* Display mode: title · URL [copy] [pencil] */}}
+<div id="meta-view"{{if .IsOwner}} class=""{{end}}>
+  {{if .Image.Title}}
+  <span class="meta-title" title="{{.Image.Title}}">{{.Image.Title}}</span>
+  {{else}}
+  <span class="meta-title is-unnamed">Unnamed</span>
+  {{end}}
+  <span class="sep">·</span>
+  <a class="meta-url" href="{{.Image.SourceURL}}" target="_blank" rel="noopener noreferrer"
+     title="{{.Image.SourceURL}}">{{.Image.SourceURL}}</a>
+  <button class="btn-copy-icon" onclick="copyText('{{.Image.SourceURL}}', this)" title="Copy source URL">
+    <span class="icon is-small"><i class="fa fa-copy"></i></span>
+  </button>
+  {{if .IsOwner}}
+  <button class="button is-ghost is-small" onclick="startEdit()" title="Edit title and source URL">
+    <span class="icon is-small"><i class="fa fa-pencil"></i></span>
+  </button>
+  {{end}}
+</div>
+
+{{if .IsOwner}}
+{{/* Edit mode: inputs for title and URL, hidden until pencil is clicked */}}
+<form id="meta-edit" style="display:none" onsubmit="saveEdit(event)">
+  <input id="edit-title" class="input is-small" type="text"
+         placeholder="Title (empty to clear)"
+         value="{{if .Image.Title}}{{.Image.Title}}{{end}}">
+  <input id="edit-source-url" class="input is-small" type="url" required
+         value="{{.Image.SourceURL}}">
+  <button type="submit" class="button is-primary is-small">Save</button>
+  <button type="button" class="button is-light is-small" onclick="cancelEdit()">Cancel</button>
+</form>
+{{end}}
 {{end}}
 
 {{define "navbar-end"}}
@@ -92,13 +124,16 @@
       <span class="icon is-small"><i class="fa fa-link"></i></span>
       <span>Copy link</span>
     </button>
+    <a class="button is-light is-small" href="/{{.Image.ID}}.png">
+      <span class="icon is-small"><i class="fa fa-image"></i></span>
+      <span>View raw</span>
+    </a>
     <a class="button is-light is-small" href="/{{.Image.ID}}.png" download>
       <span class="icon is-small"><i class="fa fa-download"></i></span>
       <span>Download</span>
     </a>
     {{if .IsOwner}}
-    <button class="button is-danger is-light is-small"
-            onclick="deleteImage('{{.Image.ID}}')">
+    <button class="button is-danger is-light is-small" onclick="deleteImage('{{.Image.ID}}')">
       <span class="icon is-small"><i class="fa fa-trash"></i></span>
       <span>Delete</span>
     </button>
@@ -110,59 +145,6 @@
 {{define "content"}}
 <div class="image-box">
   <img src="/{{.Image.ID}}.png" alt="screenshot">
-</div>
-
-<div class="meta-box">
-  <div class="meta-title">
-    {{if .Image.Title}}
-    <span class="title-text">{{.Image.Title}}</span>
-    {{else}}
-    <span class="title-text title-unnamed">Unnamed</span>
-    {{end}}
-    {{if .IsOwner}}
-    <button class="button is-ghost is-small" onclick="toggleEdit()" title="Edit title and source URL">
-      <span class="icon is-small"><i class="fa fa-pencil"></i></span>
-    </button>
-    {{end}}
-  </div>
-
-  <div class="source-row">
-    <span class="has-text-grey-light is-flex-shrink-0">Source:</span>
-    <a href="{{.Image.SourceURL}}" target="_blank" rel="noopener noreferrer"
-       title="{{.Image.SourceURL}}">{{.Image.SourceURL}}</a>
-    <button class="btn-copy-icon" onclick="copyText('{{.Image.SourceURL}}', this)"
-            title="Copy source URL">
-      <span class="icon is-small"><i class="fa fa-copy"></i></span>
-    </button>
-  </div>
-
-  {{if .IsOwner}}
-  <form id="edit-form" class="is-hidden" onsubmit="saveEdit(event)">
-    <div class="field">
-      <label class="label is-small">Title</label>
-      <div class="control">
-        <input id="edit-title" class="input is-small" type="text"
-               placeholder="Leave empty to clear the title"
-               value="{{if .Image.Title}}{{.Image.Title}}{{end}}">
-      </div>
-    </div>
-    <div class="field">
-      <label class="label is-small">Source URL</label>
-      <div class="control">
-        <input id="edit-source-url" class="input is-small" type="url" required
-               value="{{.Image.SourceURL}}">
-      </div>
-    </div>
-    <div class="field is-grouped">
-      <div class="control">
-        <button type="submit" class="button is-primary is-small">Save</button>
-      </div>
-      <div class="control">
-        <button type="button" class="button is-light is-small" onclick="toggleEdit()">Cancel</button>
-      </div>
-    </div>
-  </form>
-  {{end}}
 </div>
 
 <script>
@@ -186,18 +168,21 @@ function deleteImage(id) {
   if (!confirm('Delete this screenshot? This cannot be undone.')) return;
   fetch('/' + id, { method: 'DELETE', credentials: 'same-origin' })
     .then(r => {
-      if (r.ok) {
-        window.location.href = '/';
-      } else {
-        return r.json().then(j => { alert('Delete failed: ' + (j.error || r.status)); });
-      }
+      if (r.ok) { window.location.href = '/'; }
+      else { return r.json().then(j => { alert('Delete failed: ' + (j.error || r.status)); }); }
     })
     .catch(() => alert('Network error while deleting.'));
 }
 
-function toggleEdit() {
-  const form = document.getElementById('edit-form');
-  form.classList.toggle('is-hidden');
+function startEdit() {
+  document.getElementById('meta-view').style.display = 'none';
+  document.getElementById('meta-edit').style.display = 'flex';
+  document.getElementById('edit-title').focus();
+}
+
+function cancelEdit() {
+  document.getElementById('meta-edit').style.display = 'none';
+  document.getElementById('meta-view').style.display = 'flex';
 }
 
 function saveEdit(e) {
@@ -210,11 +195,8 @@ function saveEdit(e) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, source_url: sourceURL }),
   }).then(r => {
-    if (r.ok) {
-      window.location.reload();
-    } else {
-      return r.json().then(j => { alert('Save failed: ' + (j.error || r.status)); });
-    }
+    if (r.ok) { window.location.reload(); }
+    else { return r.json().then(j => { alert('Save failed: ' + (j.error || r.status)); }); }
   }).catch(() => alert('Network error while saving.'));
 }
 </script>

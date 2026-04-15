@@ -214,12 +214,13 @@ func (d *DB) DeleteImage(ctx context.Context, id, ownerID string) (bool, error) 
 	return n > 0, nil
 }
 
-// ListRecentImages returns up to limit images for ownerID, newest first.
-func (d *DB) ListRecentImages(ctx context.Context, ownerID string, limit int) ([]Image, error) {
+// ListRecentImages returns up to limit images for ownerID starting at the given
+// offset, ordered newest first. Pass limit+1 and check len to detect a next page.
+func (d *DB) ListRecentImages(ctx context.Context, ownerID string, limit, offset int) ([]Image, error) {
 	rows, err := d.sql.QueryContext(ctx,
 		d.q(`SELECT id, owner_id, title, source_url, file_path, created_at
-		     FROM images WHERE owner_id = ? ORDER BY created_at DESC LIMIT ?`),
-		ownerID, limit)
+		     FROM images WHERE owner_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`),
+		ownerID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list images: %w", err)
 	}

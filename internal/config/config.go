@@ -12,10 +12,19 @@ import (
 type Config struct {
 	Server   ServerConfig   `toml:"server"`
 	ID       IDConfig       `toml:"id"`
+	Home     HomeConfig     `toml:"home"`
 	Session  SessionConfig  `toml:"session"`
 	CORS     CORSConfig     `toml:"cors"`
 	Database DatabaseConfig `toml:"database"`
 	Auth     AuthConfig     `toml:"auth"`
+}
+
+// HomeConfig controls the appearance of the home page screenshot gallery.
+type HomeConfig struct {
+	// Cols is the maximum number of thumbnail columns (1–10). Default: 5.
+	Cols int `toml:"cols"`
+	// PageSize is the number of screenshots shown per page. Default: 20.
+	PageSize int `toml:"page_size"`
 }
 
 type ServerConfig struct {
@@ -96,6 +105,10 @@ func defaults() *Config {
 		ID: IDConfig{
 			Length: 8,
 		},
+		Home: HomeConfig{
+			Cols:     5,
+			PageSize: 20,
+		},
 		Session: SessionConfig{
 			TTL: tomlDuration{720 * time.Hour},
 		},
@@ -120,6 +133,12 @@ func validate(cfg *Config) error {
 	}
 	if cfg.ID.Length < 4 {
 		return fmt.Errorf("id.length must be at least 4")
+	}
+	if cfg.Home.Cols < 1 || cfg.Home.Cols > 10 {
+		return fmt.Errorf("home.cols must be between 1 and 10")
+	}
+	if cfg.Home.PageSize < 1 {
+		return fmt.Errorf("home.page_size must be at least 1")
 	}
 	if cfg.Session.Secret == "" {
 		return fmt.Errorf("session.secret is required")
