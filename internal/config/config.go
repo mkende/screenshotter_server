@@ -39,10 +39,13 @@ type HomeConfig struct {
 }
 
 type ServerConfig struct {
-	Domain          string   `toml:"domain"`
-	Listen          string   `toml:"listen"`
-	StoragePath     string   `toml:"storage_path"`
-	MaxUploadMB     int64    `toml:"max_upload_mb"`
+	Domain      string `toml:"domain"`
+	Listen      string `toml:"listen"`
+	StoragePath string `toml:"storage_path"`
+	MaxUploadMB int64  `toml:"max_upload_mb"`
+	// AssetsPath is an optional directory of static files.  When set,
+	// /favicon.ico is served from <assets_path>/favicon.ico.
+	AssetsPath string `toml:"assets_path"`
 	// TrustedProxyIPs is the list of CIDRs whose X-Forwarded-For / X-Real-IP
 	// headers are trusted for real-IP resolution.  Also used by the Tailscale
 	// auth backend to validate that the Tailscale sidecar is the peer.

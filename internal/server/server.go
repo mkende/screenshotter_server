@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -35,6 +37,11 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 	})
 	r.Use(ratelimit.Middleware(rl))
 
+	// Favicon — served directly from disk; no auth required.
+	if cfg.Server.AssetsPath != "" {
+		r.Get("/favicon.ico", faviconHandler(cfg.Server.AssetsPath))
+	}
+
 	// Auth routes (no session required).
 	r.Get("/auth/login", h.LoginHandler)
 	r.Get("/auth/callback", h.CallbackHandler)
@@ -56,6 +63,28 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 	})
 
 	return r
+}
+
+// ── Favicon ───────────────────────────────────────────────────────────────────
+
+// faviconHandler serves favicon.ico from assetsPath.
+func faviconHandler(assetsPath string) http.HandlerFunc {
+	faviconFile := filepath.Join(assetsPath, "favicon.ico")
+	return func(w http.ResponseWriter, r *http.Request) {
+		f, err := os.Open(faviconFile)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		stat, err := f.Stat()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "image/x-icon")
+		http.ServeContent(w, r, "favicon.ico", stat.ModTime(), f)
+	}
 }
 
 // ── Real-IP middleware ────────────────────────────────────────────────────────

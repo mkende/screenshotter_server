@@ -16,6 +16,11 @@ storage_path = "/var/lib/screenshotter/images"
 # Maximum upload size in megabytes (default: 4).
 max_upload_mb = 4
 
+# Optional directory of static assets served by the server.
+# When set, /favicon.ico is served from <assets_path>/favicon.ico.
+# Generate the favicon by running: node shared/generate-icons.js
+# assets_path = "/var/lib/screenshotter/assets"
+
 # CIDRs of reverse proxies whose X-Forwarded-For / X-Real-IP headers are
 # trusted for real-IP resolution and rate limiting.  Also restricts which
 # peers the Tailscale auth backend will accept headers from.
