@@ -3,6 +3,7 @@ package server
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -11,16 +12,28 @@ import (
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/config"
 	"github.com/mkende/screenshotter/server/internal/handlers"
+	"github.com/mkende/screenshotter/server/internal/ratelimit"
 )
 
 // New builds and returns the main HTTP handler.
 func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.RealIP)
+	// Parse trusted proxy CIDRs once at startup.
+	trustedNets := parseCIDRs(cfg.Server.TrustedProxyIPs)
+
+	r.Use(realIPMiddleware(trustedNets))
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(cfg))
+
+	// Rate limiting applies to every route, including 404s on image paths,
+	// to prevent enumeration of image IDs.
+	rl := ratelimit.NewMemory(ratelimit.Config{
+		RequestsPerSecond: cfg.RateLimit.RequestsPerSecond,
+		RequestsPerMinute: cfg.RateLimit.RequestsPerMinute,
+	})
+	r.Use(ratelimit.Middleware(rl))
 
 	// Auth routes (no session required).
 	r.Get("/auth/login", h.LoginHandler)
@@ -44,6 +57,88 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 
 	return r
 }
+
+// ── Real-IP middleware ────────────────────────────────────────────────────────
+
+// realIPMiddleware replaces chi's middleware.RealIP.  It stores the raw TCP
+// peer IP in the request context (via auth.WithPeerIP so Tailscale auth can
+// read it after any header-based rewriting), then rewrites r.RemoteAddr from
+// X-Forwarded-For / X-Real-IP only when the peer is in trustedNets.
+func realIPMiddleware(trustedNets []*net.IPNet) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			peer := bareIP(r.RemoteAddr)
+
+			// Always save the raw peer before any rewriting.
+			r = auth.WithPeerIP(r, peer)
+
+			if len(trustedNets) > 0 && ipInNets(peer, trustedNets) {
+				if realIP := firstForwardedFor(r); realIP != "" {
+					r.RemoteAddr = realIP
+				}
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// firstForwardedFor returns the leftmost (client) IP from X-Forwarded-For, or
+// the value of X-Real-IP, whichever is present first (X-Forwarded-For wins).
+// Returns "" if neither header is set or valid.
+func firstForwardedFor(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// X-Forwarded-For: client, proxy1, proxy2 — take the leftmost entry.
+		if idx := strings.IndexByte(xff, ','); idx >= 0 {
+			xff = strings.TrimSpace(xff[:idx])
+		} else {
+			xff = strings.TrimSpace(xff)
+		}
+		if net.ParseIP(xff) != nil {
+			return xff
+		}
+	}
+	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
+		if net.ParseIP(xri) != nil {
+			return xri
+		}
+	}
+	return ""
+}
+
+func bareIP(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	return host
+}
+
+func parseCIDRs(cidrs []string) []*net.IPNet {
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err == nil {
+			nets = append(nets, network)
+		}
+	}
+	return nets
+}
+
+func ipInNets(ip string, nets []*net.IPNet) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for _, n := range nets {
+		if n.Contains(parsed) {
+			return true
+		}
+	}
+	return false
+}
+
+// ── CORS middleware ───────────────────────────────────────────────────────────
 
 // corsMiddleware sets CORS headers for requests from registered extension origins.
 func corsMiddleware(cfg *config.Config) func(http.Handler) http.Handler {

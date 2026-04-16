@@ -10,13 +10,24 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `toml:"server"`
-	ID       IDConfig       `toml:"id"`
-	Home     HomeConfig     `toml:"home"`
-	Session  SessionConfig  `toml:"session"`
-	CORS     CORSConfig     `toml:"cors"`
-	Database DatabaseConfig `toml:"database"`
-	Auth     AuthConfig     `toml:"auth"`
+	Server    ServerConfig    `toml:"server"`
+	ID        IDConfig        `toml:"id"`
+	Home      HomeConfig      `toml:"home"`
+	Session   SessionConfig   `toml:"session"`
+	CORS      CORSConfig      `toml:"cors"`
+	Database  DatabaseConfig  `toml:"database"`
+	Auth      AuthConfig      `toml:"auth"`
+	RateLimit RateLimitConfig `toml:"ratelimit"`
+}
+
+// RateLimitConfig controls the built-in per-IP rate limiter.
+type RateLimitConfig struct {
+	// RequestsPerSecond is the maximum number of requests allowed per IP per
+	// second (default: 5).  Set to 0 to disable the per-second limit.
+	RequestsPerSecond int `toml:"requests_per_second"`
+	// RequestsPerMinute is the maximum number of requests allowed per IP per
+	// minute (default: 50).  Set to 0 to disable the per-minute limit.
+	RequestsPerMinute int `toml:"requests_per_minute"`
 }
 
 // HomeConfig controls the appearance of the home page screenshot gallery.
@@ -28,10 +39,14 @@ type HomeConfig struct {
 }
 
 type ServerConfig struct {
-	Domain      string `toml:"domain"`
-	Listen      string `toml:"listen"`
-	StoragePath string `toml:"storage_path"`
-	MaxUploadMB int64  `toml:"max_upload_mb"`
+	Domain          string   `toml:"domain"`
+	Listen          string   `toml:"listen"`
+	StoragePath     string   `toml:"storage_path"`
+	MaxUploadMB     int64    `toml:"max_upload_mb"`
+	// TrustedProxyIPs is the list of CIDRs whose X-Forwarded-For / X-Real-IP
+	// headers are trusted for real-IP resolution.  Also used by the Tailscale
+	// auth backend to validate that the Tailscale sidecar is the peer.
+	TrustedProxyIPs []string `toml:"trusted_proxy_ips"`
 }
 
 type IDConfig struct {
@@ -80,9 +95,10 @@ type OIDCConfig struct {
 	Scopes       []string `toml:"scopes"`
 }
 
-type TailscaleConfig struct {
-	ProxyIPs []string `toml:"proxy_ips"`
-}
+// TailscaleConfig holds Tailscale auth backend settings.
+// The list of trusted proxy IPs is shared with the server config
+// (server.trusted_proxy_ips) rather than being duplicated here.
+type TailscaleConfig struct{}
 
 // Load parses the TOML config at path, applies defaults, and validates it.
 func Load(path string) (*Config, error) {
@@ -117,6 +133,10 @@ func defaults() *Config {
 				Scopes: []string{"openid", "email", "profile"},
 			},
 		},
+		RateLimit: RateLimitConfig{
+			RequestsPerSecond: 5,
+			RequestsPerMinute: 50,
+		},
 	}
 }
 
@@ -130,6 +150,11 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Server.MaxUploadMB <= 0 {
 		return fmt.Errorf("server.max_upload_mb must be positive")
+	}
+	for _, cidr := range cfg.Server.TrustedProxyIPs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("server.trusted_proxy_ips: invalid CIDR %q: %w", cidr, err)
+		}
 	}
 	if cfg.ID.Length < 4 {
 		return fmt.Errorf("id.length must be at least 4")
@@ -159,11 +184,8 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("auth.oidc: issuer_url, client_id, and client_secret are all required")
 		}
 	case "tailscale":
-		for _, cidr := range cfg.Auth.Tailscale.ProxyIPs {
-			if _, _, err := net.ParseCIDR(cidr); err != nil {
-				return fmt.Errorf("auth.tailscale.proxy_ips: invalid CIDR %q: %w", cidr, err)
-			}
-		}
+		// No additional config required; trusted proxy IPs come from
+		// server.trusted_proxy_ips.
 	case "anonymous":
 		// No additional config required; every request is authenticated as a
 		// fixed anonymous user. Intended for local testing only.

@@ -10,13 +10,14 @@ import (
 
 // tailscaleService extracts user identity from Tailscale-injected headers.
 type tailscaleService struct {
-	// allowedNets is the list of trusted source CIDRs. Empty means trust all.
+	// allowedNets is the list of trusted source CIDRs (from server.trusted_proxy_ips).
+	// Empty means trust all peer addresses.
 	allowedNets []*net.IPNet
 }
 
 func newTailscaleService(cfg *config.Config) (*tailscaleService, error) {
 	svc := &tailscaleService{}
-	for _, cidr := range cfg.Auth.Tailscale.ProxyIPs {
+	for _, cidr := range cfg.Server.TrustedProxyIPs {
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
 			// Already validated in config.Load, but be defensive.
@@ -30,7 +31,7 @@ func newTailscaleService(cfg *config.Config) (*tailscaleService, error) {
 // claimsFromHeaders reads Tailscale user headers and returns Claims, or nil
 // if the request origin is not trusted or the headers are absent.
 func (ts *tailscaleService) claimsFromHeaders(r *http.Request) *Claims {
-	if len(ts.allowedNets) > 0 && !ts.remoteAddrAllowed(r) {
+	if len(ts.allowedNets) > 0 && !ts.peerAllowed(r) {
 		return nil
 	}
 	login := r.Header.Get("Tailscale-User-Login")
@@ -48,14 +49,10 @@ func (ts *tailscaleService) claimsFromHeaders(r *http.Request) *Claims {
 	}
 }
 
-// remoteAddrAllowed reports whether the request's remote address is in one of
-// the allowed networks. It handles both IPv4 and IPv6, and strips the port.
-func (ts *tailscaleService) remoteAddrAllowed(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	ip := net.ParseIP(host)
+// peerAllowed reports whether the raw TCP peer IP (before any X-Forwarded-For
+// rewriting) is in one of the allowed networks.
+func (ts *tailscaleService) peerAllowed(r *http.Request) bool {
+	ip := net.ParseIP(peerIPFromRequest(r))
 	if ip == nil {
 		return false
 	}

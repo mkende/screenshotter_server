@@ -12,7 +12,7 @@ import (
 func makeTailscaleService(t *testing.T, cidrs []string) *tailscaleService {
 	t.Helper()
 	cfg := &config.Config{}
-	cfg.Auth.Tailscale.ProxyIPs = cidrs
+	cfg.Server.TrustedProxyIPs = cidrs
 	svc, err := newTailscaleService(cfg)
 	if err != nil {
 		t.Fatalf("newTailscaleService: %v", err)

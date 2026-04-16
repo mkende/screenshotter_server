@@ -132,11 +132,9 @@ func TestLoad_TrailingSlashTrimmedFromDomain(t *testing.T) {
 
 func TestLoad_BadCIDR(t *testing.T) {
 	toml := strings.ReplaceAll(validBase(),
-		`backend = "tailscale"`,
-		`backend = "tailscale"
-
-[auth.tailscale]
-proxy_ips = ["not-a-cidr"]`)
+		`domain       = "https://example.com"`,
+		`domain       = "https://example.com"
+trusted_proxy_ips = ["not-a-cidr"]`)
 	path := writeConfig(t, toml)
 	_, err := Load(path)
 	if err == nil || !strings.Contains(err.Error(), "CIDR") {

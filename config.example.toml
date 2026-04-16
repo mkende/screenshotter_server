@@ -16,6 +16,13 @@ storage_path = "/var/lib/screenshotter/images"
 # Maximum upload size in megabytes (default: 4).
 max_upload_mb = 4
 
+# CIDRs of reverse proxies whose X-Forwarded-For / X-Real-IP headers are
+# trusted for real-IP resolution and rate limiting.  Also restricts which
+# peers the Tailscale auth backend will accept headers from.
+# Omit or leave empty to use the direct TCP peer address for everything.
+#
+# trusted_proxy_ips = ["127.0.0.1/8", "::1/128", "10.0.0.0/8"]
+
 [id]
 # Length of the random alphanumeric image ID (default: 8, minimum: 4).
 length = 8
@@ -47,6 +54,17 @@ dsn = "/var/lib/screenshotter/db.sqlite"
 # dsn = "postgres://user:password@localhost/screenshotter?sslmode=require"
 
 # ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+[ratelimit]
+# Maximum requests per IP per second (default: 5).  Set to 0 to disable.
+requests_per_second = 5
+
+# Maximum requests per IP per minute (default: 50).  Set to 0 to disable.
+requests_per_minute = 50
+
+# ---------------------------------------------------------------------------
 # Authentication — exactly one backend must be configured.
 # ---------------------------------------------------------------------------
 
@@ -73,9 +91,6 @@ client_secret = "<your-client-secret>"
 # When enabled, user identity is read from headers injected by the Tailscale
 # proxy (Tailscale-User-Login, Tailscale-User-Name). No explicit login step.
 # Switch to this section by setting auth.backend = "tailscale" above.
-[auth.tailscale]
-# Restrict header trust to specific source CIDRs (both IPv4 and IPv6 accepted).
-# Omit or leave empty to trust all source addresses (safe in a pure-Tailscale
-# deployment where the server is not reachable from the public internet).
-#
-# proxy_ips = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]
+# [auth.tailscale]
+# No Tailscale-specific options — trusted proxy IPs come from
+# server.trusted_proxy_ips above.

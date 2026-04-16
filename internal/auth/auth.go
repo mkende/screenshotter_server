@@ -5,6 +5,8 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 
 	"github.com/mkende/screenshotter/server/internal/config"
 )
@@ -13,8 +15,30 @@ import (
 type contextKey int
 
 const (
-	claimsKey contextKey = iota
+	claimsKey  contextKey = iota
+	peerIPKey             // raw TCP peer IP, set before any header-based rewriting
 )
+
+// WithPeerIP stores the raw TCP peer IP in r's context and returns the updated
+// request.  Called by the server's real-IP middleware so that the Tailscale
+// auth backend can check the actual peer regardless of X-Forwarded-For
+// rewriting.
+func WithPeerIP(r *http.Request, ip string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), peerIPKey, ip))
+}
+
+// peerIPFromRequest returns the raw TCP peer IP stored by WithPeerIP, falling
+// back to parsing r.RemoteAddr if the context value is absent.
+func peerIPFromRequest(r *http.Request) string {
+	if v, ok := r.Context().Value(peerIPKey).(string); ok {
+		return v
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
 
 // Service is the central auth object. Create via New.
 type Service struct {
