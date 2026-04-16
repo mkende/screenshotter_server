@@ -130,6 +130,9 @@
     <button class="tool-btn" data-tool="text" onclick="setTool('text')" title="Text (T)">
       <span style="font-weight:700;font-size:17px;font-family:serif">T</span>
     </button>
+    <button class="tool-btn" data-tool="redact" onclick="setTool('redact')" title="Redact (X) — solid black rectangle">
+      <i class="fa fa-eye-slash" style="font-size:14px"></i>
+    </button>
 
     <hr class="tool-sep">
 
@@ -375,6 +378,13 @@
         selectable: false, evented: false,
       });
       canvas.add(activeObj);
+    } else if (currentTool === 'redact') {
+      activeObj = new fabric.Rect({
+        left: ptr.x, top: ptr.y, width: 1, height: 1,
+        fill: '#111111', stroke: 'transparent', strokeWidth: 0,
+        selectable: false, evented: false,
+      });
+      canvas.add(activeObj);
     } else if (currentTool === 'arrow') {
       activeObj = makeArrow(ptr.x, ptr.y, ptr.x + 1, ptr.y, currentColor, currentStroke);
       canvas.add(activeObj);
@@ -385,7 +395,7 @@
     if (!isDrawing || !activeObj) return;
     var ptr = canvas.getPointer(opt.e);
 
-    if (currentTool === 'rect') {
+    if (currentTool === 'rect' || currentTool === 'redact') {
       activeObj.set({
         left: Math.min(drawStart.x, ptr.x),
         top: Math.min(drawStart.y, ptr.y),
@@ -489,6 +499,7 @@
       if (e.key === 'r') { setTool('rect'); return; }
       if (e.key === 'a') { setTool('arrow'); return; }
       if (e.key === 't') { setTool('text'); return; }
+      if (e.key === 'x') { setTool('redact'); return; }
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       var active = canvas.getActiveObject();
