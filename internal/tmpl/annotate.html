@@ -1,0 +1,508 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Annotate — Screenshotter</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+
+    #editor { display: flex; height: 100vh; }
+
+    /* ── Toolbar ─────────────────────────────────────── */
+    #toolbar {
+      width: 56px;
+      background: #f5f5f5;
+      border-right: 1px solid #dbdbdb;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 0;
+      overflow-y: auto;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .tool-btn {
+      width: 40px; height: 40px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: none;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: #555;
+      font-size: 16px;
+      transition: background 0.1s;
+    }
+    .tool-btn:hover { background: #e8e8e8; color: #222; }
+    .tool-btn.is-active { background: #dbedff; border-color: #3273dc; color: #3273dc; }
+    .tool-sep {
+      width: 32px;
+      border: none;
+      border-top: 1px solid #dbdbdb;
+      margin: 4px 0;
+    }
+    .swatch {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform 0.1s;
+      outline: none;
+    }
+    .swatch:hover { transform: scale(1.15); }
+    .swatch.is-active { border-color: #333; box-shadow: 0 0 0 1px #fff inset; }
+    .stroke-btn {
+      width: 40px; height: 32px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: none;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .stroke-btn:hover { background: #e8e8e8; }
+    .stroke-btn.is-active { background: #dbedff; border-color: #3273dc; }
+    .stroke-line { background: #333; border-radius: 2px; width: 24px; }
+
+    /* bottom action buttons */
+    #toolbar-bottom {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding-bottom: 8px;
+    }
+    .action-btn {
+      width: 40px; height: 40px;
+      border: 1px solid #dbdbdb;
+      border-radius: 6px;
+      background: white;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      color: #555;
+    }
+    .action-btn:hover { background: #f0f0f0; }
+    .action-btn.is-save { background: #3273dc; border-color: #3273dc; color: white; }
+    .action-btn.is-save:hover { background: #2366d1; }
+    .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Canvas area ──────────────────────────────────── */
+    #canvas-area {
+      flex: 1;
+      overflow: auto;
+      /* checkerboard to show transparency */
+      background-color: #999;
+      background-image:
+        linear-gradient(45deg, #bbb 25%, transparent 25%),
+        linear-gradient(-45deg, #bbb 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #bbb 75%),
+        linear-gradient(-45deg, transparent 75%, #bbb 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    /* drop-shadow on the canvas so it pops from the checkerboard */
+    #canvas-area .canvas-container {
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+  </style>
+</head>
+<body>
+<div id="editor">
+
+  <!-- ── Toolbar ──────────────────────────────────────── -->
+  <div id="toolbar">
+    <!-- Tools -->
+    <button class="tool-btn is-active" data-tool="select" onclick="setTool('select')" title="Select (V)">
+      <i class="fa fa-arrow-pointer"></i>
+    </button>
+    <button class="tool-btn" data-tool="rect" onclick="setTool('rect')" title="Rectangle (R)">
+      <i class="fa fa-square" style="font-size:14px"></i>
+    </button>
+    <button class="tool-btn" data-tool="arrow" onclick="setTool('arrow')" title="Arrow (A)">
+      <i class="fa fa-arrow-right"></i>
+    </button>
+    <button class="tool-btn" data-tool="text" onclick="setTool('text')" title="Text (T)">
+      <span style="font-weight:700;font-size:17px;font-family:serif">T</span>
+    </button>
+
+    <hr class="tool-sep">
+
+    <!-- Color palette -->
+    <button class="swatch is-active" data-color="#ef4444" style="background:#ef4444"
+            onclick="setColor('#ef4444',this)" title="Red"></button>
+    <button class="swatch" data-color="#f97316" style="background:#f97316"
+            onclick="setColor('#f97316',this)" title="Orange"></button>
+    <button class="swatch" data-color="#eab308" style="background:#eab308"
+            onclick="setColor('#eab308',this)" title="Yellow"></button>
+    <button class="swatch" data-color="#22c55e" style="background:#22c55e"
+            onclick="setColor('#22c55e',this)" title="Green"></button>
+    <button class="swatch" data-color="#3b82f6" style="background:#3b82f6"
+            onclick="setColor('#3b82f6',this)" title="Blue"></button>
+    <button class="swatch" data-color="#ffffff" style="background:#ffffff;border-color:#aaa"
+            onclick="setColor('#ffffff',this)" title="White"></button>
+
+    <hr class="tool-sep">
+
+    <!-- Stroke width -->
+    <button class="stroke-btn is-active" data-sw="2" onclick="setStroke(2,this)" title="Thin">
+      <div class="stroke-line" style="height:2px"></div>
+    </button>
+    <button class="stroke-btn" data-sw="4" onclick="setStroke(4,this)" title="Medium">
+      <div class="stroke-line" style="height:4px"></div>
+    </button>
+    <button class="stroke-btn" data-sw="7" onclick="setStroke(7,this)" title="Thick">
+      <div class="stroke-line" style="height:7px"></div>
+    </button>
+
+    <hr class="tool-sep">
+
+    <!-- Undo -->
+    <button class="tool-btn" onclick="undo()" title="Undo (Ctrl+Z)">
+      <i class="fa fa-rotate-left"></i>
+    </button>
+    <!-- Expand canvas -->
+    <button class="tool-btn" onclick="expandCanvas()" title="Add space around image">
+      <i class="fa fa-expand"></i>
+    </button>
+
+    <!-- Bottom actions -->
+    <div id="toolbar-bottom">
+      <button class="action-btn" onclick="cancelAnnotate()" title="Cancel">
+        <i class="fa fa-xmark"></i>
+      </button>
+      <button class="action-btn is-save" id="save-btn" onclick="saveAnnotation()" title="Save">
+        <i class="fa fa-check"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Canvas area ──────────────────────────────────── -->
+  <div id="canvas-area">
+    <canvas id="c"></canvas>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const IMAGE_ID = '{{.Image.ID}}';
+  const FONT_NAME = 'ScreenshotterAnnotation';
+  const FONT_URL = '/static/font.ttf';
+  const EXPAND_PX = 150;
+
+  // ── State ────────────────────────────────────────────
+  let currentTool = 'select';
+  let currentColor = '#ef4444';
+  let currentStroke = 2;
+  let history = [];   // JSON snapshots for undo
+  let isDrawing = false;
+  let drawStart = null;
+  let activeObj = null;  // object being drawn (preview)
+
+  // ── Canvas init ──────────────────────────────────────
+  const canvas = new fabric.Canvas('c', {
+    backgroundColor: null,
+    preserveObjectStacking: true,
+    selection: true,
+  });
+
+  // Load font then image
+  const fontFace = new FontFace(FONT_NAME, 'url(' + FONT_URL + ')');
+  document.fonts.add(fontFace);
+  fontFace.load().then(function () {
+    fabric.Image.fromURL('/' + IMAGE_ID + '.png', function (img) {
+      img.set({
+        left: 0, top: 0,
+        selectable: false, evented: false,
+        hasControls: false,
+        lockMovementX: true, lockMovementY: true,
+        isBackground: true,
+      });
+      canvas.setWidth(img.width);
+      canvas.setHeight(img.height);
+      canvas.add(img);
+      canvas.renderAll();
+      pushHistory();
+    }, { crossOrigin: 'anonymous' });
+  }).catch(function () {
+    // Font failed to load — proceed without custom font.
+    fabric.Image.fromURL('/' + IMAGE_ID + '.png', function (img) {
+      img.set({
+        left: 0, top: 0,
+        selectable: false, evented: false,
+        hasControls: false,
+        lockMovementX: true, lockMovementY: true,
+        isBackground: true,
+      });
+      canvas.setWidth(img.width);
+      canvas.setHeight(img.height);
+      canvas.add(img);
+      canvas.renderAll();
+      pushHistory();
+    }, { crossOrigin: 'anonymous' });
+  });
+
+  // ── History ──────────────────────────────────────────
+  function pushHistory() {
+    history.push(canvas.toJSON(['isBackground']));
+  }
+
+  function undo() {
+    if (history.length <= 1) return;
+    history.pop();
+    canvas.loadFromJSON(history[history.length - 1], function () {
+      canvas.forEachObject(function (obj) {
+        if (obj.isBackground) {
+          obj.set({ selectable: false, evented: false });
+        }
+      });
+      canvas.renderAll();
+    });
+  }
+
+  // ── Tool management ──────────────────────────────────
+  function setTool(tool) {
+    currentTool = tool;
+    canvas.isDrawingMode = false;
+    canvas.selection = (tool === 'select');
+
+    canvas.forEachObject(function (obj) {
+      if (!obj.isBackground) {
+        obj.selectable = (tool === 'select');
+        obj.evented = (tool === 'select');
+      }
+    });
+
+    var cursors = { select: 'default', rect: 'crosshair', arrow: 'crosshair', text: 'text' };
+    canvas.defaultCursor = cursors[tool] || 'default';
+    canvas.hoverCursor = (tool === 'select') ? 'move' : (cursors[tool] || 'default');
+
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(function (btn) {
+      btn.classList.toggle('is-active', btn.dataset.tool === tool);
+    });
+  }
+
+  function setColor(color, btn) {
+    currentColor = color;
+    document.querySelectorAll('.swatch').forEach(function (s) {
+      s.classList.remove('is-active');
+    });
+    btn.classList.add('is-active');
+  }
+
+  function setStroke(w, btn) {
+    currentStroke = w;
+    document.querySelectorAll('.stroke-btn').forEach(function (s) {
+      s.classList.remove('is-active');
+    });
+    btn.classList.add('is-active');
+  }
+
+  // Make these callable from inline onclick attrs
+  window.setTool = setTool;
+  window.setColor = setColor;
+  window.setStroke = setStroke;
+
+  // ── Arrow helper ─────────────────────────────────────
+  function makeArrow(x1, y1, x2, y2, color, sw) {
+    var angle = Math.atan2(y2 - y1, x2 - x1);
+    var headSize = Math.max(14, sw * 4);
+
+    var line = new fabric.Line([x1, y1, x2, y2], {
+      stroke: color, strokeWidth: sw,
+      selectable: false, evented: false,
+    });
+
+    var hx = x2, hy = y2;
+    var head = new fabric.Polygon([
+      { x: hx, y: hy },
+      { x: hx - headSize * Math.cos(angle - Math.PI / 6), y: hy - headSize * Math.sin(angle - Math.PI / 6) },
+      { x: hx - headSize * Math.cos(angle + Math.PI / 6), y: hy - headSize * Math.sin(angle + Math.PI / 6) },
+    ], {
+      fill: color, stroke: color, strokeWidth: 1,
+      selectable: false, evented: false,
+    });
+
+    return new fabric.Group([line, head], { selectable: true, evented: true });
+  }
+
+  // ── Drawing events ───────────────────────────────────
+  canvas.on('mouse:down', function (opt) {
+    if (currentTool === 'select') return;
+
+    var ptr = canvas.getPointer(opt.e);
+
+    if (currentTool === 'text') {
+      var text = new fabric.IText('Text', {
+        left: ptr.x, top: ptr.y,
+        fontSize: 20,
+        fontFamily: FONT_NAME,
+        fill: currentColor,
+        selectable: true, evented: true,
+      });
+      canvas.add(text);
+      canvas.setActiveObject(text);
+      text.enterEditing();
+      text.selectAll();
+      canvas.renderAll();
+      text.on('editing:exited', function () {
+        if (!text.text || text.text === '') {
+          canvas.remove(text);
+        }
+        pushHistory();
+        setTool('select');
+      });
+      return;
+    }
+
+    isDrawing = true;
+    drawStart = { x: ptr.x, y: ptr.y };
+
+    if (currentTool === 'rect') {
+      activeObj = new fabric.Rect({
+        left: ptr.x, top: ptr.y, width: 1, height: 1,
+        fill: 'transparent',
+        stroke: currentColor, strokeWidth: currentStroke,
+        selectable: false, evented: false,
+      });
+      canvas.add(activeObj);
+    } else if (currentTool === 'arrow') {
+      activeObj = makeArrow(ptr.x, ptr.y, ptr.x + 1, ptr.y, currentColor, currentStroke);
+      canvas.add(activeObj);
+    }
+  });
+
+  canvas.on('mouse:move', function (opt) {
+    if (!isDrawing || !activeObj) return;
+    var ptr = canvas.getPointer(opt.e);
+
+    if (currentTool === 'rect') {
+      activeObj.set({
+        left: Math.min(drawStart.x, ptr.x),
+        top: Math.min(drawStart.y, ptr.y),
+        width: Math.abs(ptr.x - drawStart.x),
+        height: Math.abs(ptr.y - drawStart.y),
+      });
+    } else if (currentTool === 'arrow') {
+      canvas.remove(activeObj);
+      activeObj = makeArrow(drawStart.x, drawStart.y, ptr.x, ptr.y, currentColor, currentStroke);
+      canvas.add(activeObj);
+    }
+    canvas.renderAll();
+  });
+
+  canvas.on('mouse:up', function () {
+    if (!isDrawing) return;
+    isDrawing = false;
+
+    if (activeObj) {
+      activeObj.set({ selectable: true, evented: true });
+      canvas.setActiveObject(activeObj);
+      activeObj = null;
+      pushHistory();
+    }
+    setTool('select');
+  });
+
+  // Push history after moving/scaling existing objects
+  canvas.on('object:modified', pushHistory);
+
+  // ── Expand canvas ─────────────────────────────────────
+  function expandCanvas() {
+    var px = EXPAND_PX;
+    var oldW = canvas.getWidth();
+    var oldH = canvas.getHeight();
+
+    canvas.forEachObject(function (obj) {
+      obj.set({ left: obj.left + px, top: obj.top + px });
+      obj.setCoords();
+    });
+    canvas.setWidth(oldW + px * 2);
+    canvas.setHeight(oldH + px * 2);
+    canvas.renderAll();
+    pushHistory();
+  }
+  window.expandCanvas = expandCanvas;
+
+  // ── Save ─────────────────────────────────────────────
+  function saveAnnotation() {
+    var saveBtn = document.getElementById('save-btn');
+    saveBtn.disabled = true;
+
+    // Deselect to hide transform handles
+    canvas.discardActiveObject();
+    canvas.renderAll();
+
+    canvas.getElement().toBlob(function (blob) {
+      fetch('/' + IMAGE_ID + '/annotate', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'image/png' },
+        body: blob,
+      }).then(function (resp) {
+        if (resp.ok) {
+          window.location.href = '/' + IMAGE_ID;
+        } else {
+          return resp.json().catch(function () { return {}; }).then(function (j) {
+            alert('Save failed: ' + (j.error || resp.status));
+            saveBtn.disabled = false;
+          });
+        }
+      }).catch(function () {
+        alert('Network error while saving.');
+        saveBtn.disabled = false;
+      });
+    }, 'image/png');
+  }
+  window.saveAnnotation = saveAnnotation;
+
+  // ── Cancel ────────────────────────────────────────────
+  function cancelAnnotate() {
+    if (history.length > 1 && !confirm('Discard annotations and go back?')) return;
+    window.location.href = '/' + IMAGE_ID;
+  }
+  window.cancelAnnotate = cancelAnnotate;
+  window.undo = undo;
+
+  // ── Keyboard shortcuts ────────────────────────────────
+  document.addEventListener('keydown', function (e) {
+    var tag = document.activeElement && document.activeElement.tagName;
+    // Don't intercept keys while typing in a Fabric IText
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      e.preventDefault();
+      undo();
+      return;
+    }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key === 'v' || e.key === 'Escape') { setTool('select'); return; }
+      if (e.key === 'r') { setTool('rect'); return; }
+      if (e.key === 'a') { setTool('arrow'); return; }
+      if (e.key === 't') { setTool('text'); return; }
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      var active = canvas.getActiveObject();
+      if (active && !active.isBackground && active.type !== 'i-text') {
+        canvas.remove(active);
+        canvas.discardActiveObject();
+        canvas.renderAll();
+        pushHistory();
+      }
+    }
+  });
+
+}());
+</script>
+</body>
+</html>
+{{end}}

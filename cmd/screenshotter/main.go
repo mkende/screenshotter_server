@@ -69,7 +69,7 @@ func run(configPath string) error {
 		return err
 	}
 
-	h := handlers.New(cfg, database, stor, authSvc, tmpls)
+	h := handlers.New(cfg, database, stor, authSvc, tmpls, tmpl.FontTTF)
 	httpHandler := server.New(cfg, h, authSvc)
 
 	srv := &http.Server{

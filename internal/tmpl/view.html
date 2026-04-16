@@ -133,6 +133,10 @@
       <span>Download</span>
     </a>
     {{if .IsOwner}}
+    <a class="button is-warning is-light is-small" href="/{{.Image.ID}}/annotate">
+      <span class="icon is-small"><i class="fa fa-pen-ruler"></i></span>
+      <span>Annotate</span>
+    </a>
     <button class="button is-danger is-light is-small" onclick="deleteImage('{{.Image.ID}}')">
       <span class="icon is-small"><i class="fa fa-trash"></i></span>
       <span>Delete</span>

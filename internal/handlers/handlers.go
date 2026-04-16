@@ -21,17 +21,26 @@ type Handlers struct {
 	storage *storage.Storage
 	auth    *auth.Service
 	tmpls   map[string]*template.Template
+	fontTTF []byte
 }
 
 // New creates a Handlers instance.
-func New(cfg *config.Config, database *db.DB, stor *storage.Storage, authSvc *auth.Service, tmpls map[string]*template.Template) *Handlers {
+func New(cfg *config.Config, database *db.DB, stor *storage.Storage, authSvc *auth.Service, tmpls map[string]*template.Template, fontTTF []byte) *Handlers {
 	return &Handlers{
 		cfg:     cfg,
 		db:      database,
 		storage: stor,
 		auth:    authSvc,
 		tmpls:   tmpls,
+		fontTTF: fontTTF,
 	}
+}
+
+// ServeFont serves the embedded Roboto Regular TTF font used by the annotation editor.
+func (h *Handlers) ServeFont(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "font/ttf")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Write(h.fontTTF) //nolint:errcheck
 }
 
 // writeJSON writes a JSON response with the given status code.

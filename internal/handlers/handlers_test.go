@@ -78,7 +78,7 @@ func newHandlers(t *testing.T) (*Handlers, *db.DB, *storage.Storage) {
 	cfg.Server.MaxUploadMB = 4
 	cfg.ID.Length = 8
 
-	h := New(cfg, database, stor, nil /* auth not needed for handler tests */, minimalTemplates())
+	h := New(cfg, database, stor, nil /* auth not needed for handler tests */, minimalTemplates(), nil /* font not needed for handler tests */)
 	return h, database, stor
 }
 

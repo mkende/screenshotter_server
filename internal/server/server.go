@@ -53,6 +53,7 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 
 		r.Get("/", h.Home)
 		r.Post("/upload", h.Upload)
+		r.Get("/static/font.ttf", h.ServeFont)
 
 		// Image routes: alphanumeric IDs only.
 		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.View)
@@ -60,6 +61,8 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 		r.Patch(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Update)
 		r.Delete(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Delete)
 		r.Get(fmt.Sprintf("/thumb/{id:[a-zA-Z0-9]{%d,}}.png", cfg.ID.Length), h.ServeThumb)
+		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}/annotate", cfg.ID.Length), h.AnnotateView)
+		r.Post(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}/annotate", cfg.ID.Length), h.Annotate)
 	})
 
 	return r
