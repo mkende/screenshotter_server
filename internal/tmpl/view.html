@@ -6,6 +6,17 @@
 
 {{define "head"}}
 <style>
+  /* Override Bulma's flex-shrink: 0 on navbar-menu so the meta area can shrink
+     when the URL is long, keeping the action buttons always visible. */
+  .navbar .navbar-menu {
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  /* Protect the action buttons from being squeezed by the meta area. */
+  .navbar-end {
+    flex-shrink: 0;
+  }
+
   /* Navbar meta area takes remaining width between brand and action buttons,
      allowing the title and URL to truncate gracefully. */
   #meta-view, #meta-edit {
@@ -23,7 +34,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     flex-shrink: 0;
-    max-width: 16rem;
   }
   #meta-view .meta-title.is-unnamed { color: #aaa; font-style: italic; }
   #meta-view .sep { color: #ccc; flex-shrink: 0; }
