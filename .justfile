@@ -20,6 +20,10 @@ check-format:
         (echo "The following files are not formatted (run 'just format' to fix):" && \
          gofmt -l . && exit 1)
 
+# Download Go module dependencies.
+deps:
+    go mod download
+
 alias all := build
 
 # Build the screenshotter binary.
