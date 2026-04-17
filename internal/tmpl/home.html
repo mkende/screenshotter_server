@@ -4,6 +4,26 @@
 
 {{define "head"}}
 <style>
+  #upload-zone {
+    border: 2px dashed #dbdbdb;
+    border-radius: 6px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s, color 0.2s;
+    margin-bottom: 1.5rem;
+    color: #7a7a7a;
+    user-select: none;
+  }
+  #upload-zone.drag-over {
+    border-color: #3273dc;
+    background-color: #f0f5ff;
+    color: #3273dc;
+  }
+  #upload-zone .upload-icon { font-size: 2rem; margin-bottom: 0.5rem; display: block; }
+  #upload-zone .upload-hint { font-size: 0.8rem; color: #aaa; margin-top: 0.25rem; }
+  #upload-status { margin-bottom: 1rem; }
+
   /* max(160px, 100%/N) ensures at most N columns on wide screens while
      gracefully reducing to fewer columns on narrow screens. */
   .screenshot-grid {
@@ -45,6 +65,100 @@
 
 {{define "content"}}
 <h1 class="title is-5">Your screenshots</h1>
+
+<div id="upload-zone" role="button" tabindex="0" aria-label="Upload zone: drop or paste an image">
+  <span class="upload-icon"><i class="fas fa-cloud-upload-alt"></i></span>
+  <p>Drop an image here, paste with <kbd>Ctrl+V</kbd>, or click to browse</p>
+  <p class="upload-hint">PNG, JPEG, GIF, WebP&nbsp;— automatically converted to PNG</p>
+</div>
+<div id="upload-status" class="is-hidden notification"></div>
+
+<script>
+(function () {
+  const zone = document.getElementById('upload-zone');
+  const status = document.getElementById('upload-status');
+
+  function showStatus(msg, cls) {
+    status.textContent = msg;
+    status.className = 'notification ' + cls;
+  }
+
+  async function convertToPNG(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('canvas conversion failed')), 'image/png');
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('failed to load image')); };
+      img.src = url;
+    });
+  }
+
+  async function upload(file) {
+    if (!file || !file.type.startsWith('image/')) {
+      showStatus('Please provide an image file.', 'is-warning');
+      return;
+    }
+    showStatus('Converting and uploading\u2026', 'is-info');
+    let blob;
+    try {
+      blob = file.type === 'image/png' ? file : await convertToPNG(file);
+    } catch (e) {
+      showStatus('Could not process image: ' + e.message, 'is-danger');
+      return;
+    }
+    const fd = new FormData();
+    fd.append('image', blob, 'upload.png');
+    fd.append('source_url', window.location.href);
+    try {
+      const resp = await fetch('/upload', {method: 'POST', body: fd});
+      const data = await resp.json();
+      if (!resp.ok) { showStatus('Upload failed: ' + (data.error || resp.statusText), 'is-danger'); return; }
+      showStatus('Uploaded! Redirecting\u2026', 'is-success');
+      window.location.href = data.redirect_url;
+    } catch (e) {
+      showStatus('Upload failed: ' + e.message, 'is-danger');
+    }
+  }
+
+  function fileFromTransfer(dt) {
+    for (const item of dt.items || []) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) return item.getAsFile();
+    }
+    return dt.files && dt.files[0] && dt.files[0].type.startsWith('image/') ? dt.files[0] : null;
+  }
+
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', e => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over'); });
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const file = fileFromTransfer(e.dataTransfer);
+    file ? upload(file) : showStatus('Please drop an image file.', 'is-warning');
+  });
+
+  zone.addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = e => { if (e.target.files[0]) upload(e.target.files[0]); };
+    input.click();
+  });
+  zone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') zone.click(); });
+
+  document.addEventListener('paste', e => {
+    for (const item of e.clipboardData?.items || []) {
+      if (item.type.startsWith('image/')) { upload(item.getAsFile()); break; }
+    }
+  });
+})();
+</script>
 {{if .Images}}
   <div class="screenshot-grid" style="--max-cols: {{.HomeCols}}">
     {{range .Images}}
