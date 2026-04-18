@@ -163,8 +163,8 @@
     {{range .Images}}
     <a class="screenshot-card" href="/{{.ID}}">
       <img src="/thumb/{{.ID}}.png" alt="screenshot" loading="lazy">
-      <div class="card-label" title="{{if .Title}}{{.Title}}{{else if .SourceURL}}{{.SourceURL}}{{else}}(no URL set){{end}}">
-        {{if .Title}}{{.Title}}{{else if .SourceURL}}{{.SourceURL}}{{else}}<span class="has-text-grey-light">(no URL set)</span>{{end}}
+      <div class="card-label" title="{{if .Title}}{{.Title}}{{if .SourceURL}} — {{.SourceURL}}{{end}}{{else if .SourceURL}}{{.SourceURL}}{{else}}(unnamed){{end}}">
+        {{if .Title}}{{.Title}}{{if .SourceURL}} <span class="has-text-grey">{{.SourceURL}}</span>{{end}}{{else if .SourceURL}}{{.SourceURL}}{{else}}<span class="has-text-grey-light">(unnamed)</span>{{end}}
       </div>
     </a>
     {{end}}
