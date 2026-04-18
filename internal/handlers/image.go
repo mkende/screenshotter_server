@@ -50,6 +50,6 @@ func (h *Handlers) serveFile(w http.ResponseWriter, r *http.Request, id, path st
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, id+".png", stat.ModTime(), f)
 }

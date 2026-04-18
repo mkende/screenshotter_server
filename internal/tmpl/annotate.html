@@ -208,6 +208,7 @@
   let isDrawing = false;
   let drawStart = null;
   let activeObj = null;  // object being drawn (preview)
+  let leaving = false;  // set true before intentional navigation to suppress beforeunload
 
   // ── Canvas init ──────────────────────────────────────
   const canvas = new fabric.Canvas('c', {
@@ -318,7 +319,11 @@
     var angle = Math.atan2(y2 - y1, x2 - x1);
     var headSize = Math.max(14, sw * 4);
 
-    var line = new fabric.Line([x1, y1, x2, y2], {
+    // End the line at the arrowhead base so the stroke doesn't protrude through the tip.
+    var lx2 = x2 - headSize * Math.cos(angle);
+    var ly2 = y2 - headSize * Math.sin(angle);
+
+    var line = new fabric.Line([x1, y1, lx2, ly2], {
       stroke: color, strokeWidth: sw,
       selectable: false, evented: false,
     });
@@ -412,6 +417,7 @@
     isDrawing = false;
 
     if (activeObj) {
+      activeObj.setCoords();
       activeObj.set({ selectable: false, evented: false });
       activeObj = null;
       pushHistory();
@@ -447,7 +453,7 @@
     canvas.discardActiveObject();
     canvas.renderAll();
 
-    canvas.getElement().toBlob(function (blob) {
+    canvas.toCanvasElement().toBlob(function (blob) {
       fetch('/' + IMAGE_ID + '/annotate', {
         method: 'POST',
         credentials: 'same-origin',
@@ -455,6 +461,7 @@
         body: blob,
       }).then(function (resp) {
         if (resp.ok) {
+          leaving = true;
           window.location.href = '/' + IMAGE_ID;
         } else {
           return resp.json().catch(function () { return {}; }).then(function (j) {
@@ -473,10 +480,19 @@
   // ── Cancel ────────────────────────────────────────────
   function cancelAnnotate() {
     if (history.length > 1 && !confirm('Discard annotations and go back?')) return;
+    leaving = true;
     window.location.href = '/' + IMAGE_ID;
   }
   window.cancelAnnotate = cancelAnnotate;
   window.undo = undo;
+
+  // Warn before leaving with unsaved changes (e.g. accidental tab close or navigation).
+  window.addEventListener('beforeunload', function (e) {
+    if (!leaving && history.length > 1) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
 
   // ── Keyboard shortcuts ────────────────────────────────
   document.addEventListener('keydown', function (e) {
