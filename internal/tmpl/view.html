@@ -99,11 +99,15 @@
   <span class="meta-title is-unnamed">Unnamed</span>
   {{end}}
   <span class="sep">·</span>
+  {{if .Image.SourceURL}}
   <a class="meta-url" href="{{.Image.SourceURL}}" target="_blank" rel="noopener noreferrer"
      title="{{.Image.SourceURL}}">{{.Image.SourceURL}}</a>
   <button class="btn-copy-icon" onclick="copyText('{{.Image.SourceURL}}', this)" title="Copy source URL">
     <span class="icon is-small"><i class="fa fa-copy"></i></span>
   </button>
+  {{else}}
+  <span class="meta-url is-unnamed" title="No source URL set">(no URL set)</span>
+  {{end}}
   {{if .IsOwner}}
   <button class="button is-ghost is-small" onclick="startEdit()" title="Edit title and source URL">
     <span class="icon is-small"><i class="fa fa-pencil"></i></span>
@@ -117,8 +121,9 @@
   <input id="edit-title" class="input is-small" type="text"
          placeholder="Title (empty to clear)"
          value="{{if .Image.Title}}{{.Image.Title}}{{end}}">
-  <input id="edit-source-url" class="input is-small" type="url" required
-         value="{{.Image.SourceURL}}">
+  <input id="edit-source-url" class="input is-small" type="url"
+         placeholder="Source URL (leave blank to clear)"
+         value="{{if .Image.SourceURL}}{{.Image.SourceURL}}{{end}}">
   <button type="submit" class="button is-primary is-small">Save</button>
   <button type="button" class="button is-light is-small" onclick="cancelEdit()">Cancel</button>
 </form>

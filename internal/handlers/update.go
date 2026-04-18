@@ -28,12 +28,6 @@ func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.SourceURL = strings.TrimSpace(req.SourceURL)
-	if req.SourceURL == "" {
-		writeJSONError(w, http.StatusBadRequest, "source_url must not be empty")
-		return
-	}
-
 	// A blank title means "no title set"; a non-empty title is stored as-is.
 	req.Title = strings.TrimSpace(req.Title)
 	var title *string
@@ -41,7 +35,13 @@ func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 		title = &req.Title
 	}
 
-	updated, err := h.db.UpdateImage(r.Context(), id, claims.UserID, title, req.SourceURL)
+	// A blank source_url clears it (stores NULL).
+	var sourceURL *string
+	if s := strings.TrimSpace(req.SourceURL); s != "" {
+		sourceURL = &s
+	}
+
+	updated, err := h.db.UpdateImage(r.Context(), id, claims.UserID, title, sourceURL)
 	if err != nil {
 		slog.Error("update image", "id", id, "err", err)
 		writeJSONError(w, http.StatusInternalServerError, "internal error")

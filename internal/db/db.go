@@ -159,7 +159,7 @@ type Image struct {
 	ID        string
 	OwnerID   string
 	Title     *string // nil means no title has been set by the user
-	SourceURL string
+	SourceURL *string // nil means no URL has been set (e.g. direct upload)
 	FilePath  string
 	CreatedAt time.Time
 }
@@ -190,9 +190,9 @@ func (d *DB) GetImage(ctx context.Context, id string) (*Image, error) {
 	return img, nil
 }
 
-// UpdateImage sets the title (nil clears it) and source URL for an image owned
-// by ownerID. Returns false if not found or not owned by the caller.
-func (d *DB) UpdateImage(ctx context.Context, id, ownerID string, title *string, sourceURL string) (bool, error) {
+// UpdateImage sets the title (nil clears it) and source URL (nil clears it) for
+// an image owned by ownerID. Returns false if not found or not owned by the caller.
+func (d *DB) UpdateImage(ctx context.Context, id, ownerID string, title *string, sourceURL *string) (bool, error) {
 	res, err := d.sql.ExecContext(ctx,
 		d.q(`UPDATE images SET title = ?, source_url = ? WHERE id = ? AND owner_id = ?`),
 		title, sourceURL, id, ownerID)

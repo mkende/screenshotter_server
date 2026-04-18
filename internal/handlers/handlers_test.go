@@ -241,11 +241,11 @@ func TestUpload_ValidPNG_Returns200WithRedirectURL(t *testing.T) {
 	}
 }
 
-func TestUpload_MissingSourceURL_Returns400(t *testing.T) {
+func TestUpload_MissingSourceURL_Returns200(t *testing.T) {
 	h, _, _ := newHandlers(t)
 	pngData := makePNG(t, 10, 10)
 
-	// Build a request with image but no source_url field.
+	// source_url is optional; omitting it should still succeed.
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, _ := mw.CreateFormFile("image", "shot.png")
@@ -256,8 +256,8 @@ func TestUpload_MissingSourceURL_Returns400(t *testing.T) {
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
 	rr := executeWithUser(t, h.Upload, req, "alice")
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected 400 for missing source_url, got %d; body: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for missing source_url, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -274,10 +274,11 @@ func setupImageForUser(t *testing.T, database *db.DB, stor *storage.Storage, ima
 	if err != nil {
 		t.Fatalf("stor.Save: %v", err)
 	}
+	u := "https://example.com"
 	if err := database.InsertImage(ctx, db.Image{
 		ID:        imageID,
 		OwnerID:   userID,
-		SourceURL: "https://example.com",
+		SourceURL: &u,
 		FilePath:  filePath,
 	}); err != nil {
 		t.Fatalf("InsertImage: %v", err)

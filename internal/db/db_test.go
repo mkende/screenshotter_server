@@ -58,6 +58,8 @@ func runTests(m *testing.M) int {
 	return m.Run()
 }
 
+func strPtr(s string) *string { return &s }
+
 func getFreePort() (int, error) {
 	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -187,7 +189,7 @@ func TestInsertImage_AndGetImage(t *testing.T) {
 			img := Image{
 				ID:        "img001",
 				OwnerID:   "owner1",
-				SourceURL: "https://example.com/page",
+				SourceURL: strPtr("https://example.com/page"),
 				FilePath:  "img001.png",
 			}
 			if err := b.db.InsertImage(ctx, img); err != nil {
@@ -207,8 +209,16 @@ func TestInsertImage_AndGetImage(t *testing.T) {
 			if got.OwnerID != img.OwnerID {
 				t.Errorf("OwnerID: got %q, want %q", got.OwnerID, img.OwnerID)
 			}
-			if got.SourceURL != img.SourceURL {
-				t.Errorf("SourceURL: got %q, want %q", got.SourceURL, img.SourceURL)
+			wantURL := ""
+			if img.SourceURL != nil {
+				wantURL = *img.SourceURL
+			}
+			gotURL := ""
+			if got.SourceURL != nil {
+				gotURL = *got.SourceURL
+			}
+			if gotURL != wantURL {
+				t.Errorf("SourceURL: got %q, want %q", gotURL, wantURL)
 			}
 			if got.FilePath != img.FilePath {
 				t.Errorf("FilePath: got %q, want %q", got.FilePath, img.FilePath)
@@ -239,7 +249,7 @@ func TestDeleteImage_OwnerCanDelete(t *testing.T) {
 			if err := b.db.UpsertUser(ctx, "owner2", "Owner2", "o2@example.com"); err != nil {
 				t.Fatalf("UpsertUser: %v", err)
 			}
-			if err := b.db.InsertImage(ctx, Image{ID: "del1", OwnerID: "owner2", SourceURL: "u", FilePath: "del1.png"}); err != nil {
+			if err := b.db.InsertImage(ctx, Image{ID: "del1", OwnerID: "owner2", SourceURL: strPtr("u"), FilePath: "del1.png"}); err != nil {
 				t.Fatalf("InsertImage: %v", err)
 			}
 
@@ -273,7 +283,7 @@ func TestDeleteImage_NonOwnerCannotDelete(t *testing.T) {
 			if err := b.db.UpsertUser(ctx, "other3", "Other3", "other3@example.com"); err != nil {
 				t.Fatalf("UpsertUser other3: %v", err)
 			}
-			if err := b.db.InsertImage(ctx, Image{ID: "del2", OwnerID: "owner3", SourceURL: "u", FilePath: "del2.png"}); err != nil {
+			if err := b.db.InsertImage(ctx, Image{ID: "del2", OwnerID: "owner3", SourceURL: strPtr("u"), FilePath: "del2.png"}); err != nil {
 				t.Fatalf("InsertImage: %v", err)
 			}
 
@@ -358,7 +368,7 @@ func TestListRecentImages_LimitRespected(t *testing.T) {
 			}
 			for i := 0; i < 5; i++ {
 				id := string(rune('a' + i))
-				if err := b.db.InsertImage(ctx, Image{ID: id, OwnerID: "limiter", SourceURL: "u", FilePath: id + ".png"}); err != nil {
+				if err := b.db.InsertImage(ctx, Image{ID: id, OwnerID: "limiter", SourceURL: strPtr("u"), FilePath: id + ".png"}); err != nil {
 					t.Fatalf("InsertImage %q: %v", id, err)
 				}
 			}
@@ -385,7 +395,7 @@ func TestListRecentImages_OtherUsersNotReturned(t *testing.T) {
 			if err := b.db.UpsertUser(ctx, "user-y", "Y", "y@example.com"); err != nil {
 				t.Fatalf("UpsertUser user-y: %v", err)
 			}
-			if err := b.db.InsertImage(ctx, Image{ID: "ximg", OwnerID: "user-x", SourceURL: "u", FilePath: "ximg.png"}); err != nil {
+			if err := b.db.InsertImage(ctx, Image{ID: "ximg", OwnerID: "user-x", SourceURL: strPtr("u"), FilePath: "ximg.png"}); err != nil {
 				t.Fatalf("InsertImage: %v", err)
 			}
 

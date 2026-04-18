@@ -115,7 +115,6 @@
     }
     const fd = new FormData();
     fd.append('image', blob, 'upload.png');
-    fd.append('source_url', window.location.href);
     try {
       const resp = await fetch('/upload', {method: 'POST', body: fd});
       const data = await resp.json();
@@ -164,8 +163,8 @@
     {{range .Images}}
     <a class="screenshot-card" href="/{{.ID}}">
       <img src="/thumb/{{.ID}}.png" alt="screenshot" loading="lazy">
-      <div class="card-label" title="{{if .Title}}{{.Title}}{{else}}{{.SourceURL}}{{end}}">
-        {{if .Title}}{{.Title}}{{else}}{{.SourceURL}}{{end}}
+      <div class="card-label" title="{{if .Title}}{{.Title}}{{else if .SourceURL}}{{.SourceURL}}{{else}}(no URL set){{end}}">
+        {{if .Title}}{{.Title}}{{else if .SourceURL}}{{.SourceURL}}{{else}}<span class="has-text-grey-light">(no URL set)</span>{{end}}
       </div>
     </a>
     {{end}}

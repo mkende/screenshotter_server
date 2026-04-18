@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
+	"strings"
 
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/db"
@@ -35,10 +36,9 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	sourceURL := r.FormValue("source_url")
-	if sourceURL == "" {
-		writeJSONError(w, http.StatusBadRequest, "missing 'source_url' field")
-		return
+	var sourceURL *string
+	if s := strings.TrimSpace(r.FormValue("source_url")); s != "" {
+		sourceURL = &s
 	}
 
 	id, err := generateID(h.cfg.ID.Length)
