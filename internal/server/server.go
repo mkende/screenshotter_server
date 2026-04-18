@@ -32,13 +32,11 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(cfg))
 
-	// Rate limiting applies to every route, including 404s on image paths,
-	// to prevent enumeration of image IDs.
 	rl := ratelimit.NewMemory(ratelimit.Config{
 		RequestsPerSecond: cfg.RateLimit.RequestsPerSecond,
 		RequestsPerMinute: cfg.RateLimit.RequestsPerMinute,
 	})
-	r.Use(ratelimit.Middleware(rl))
+	rlMiddleware := ratelimit.Middleware(rl)
 
 	// Favicon — served directly from disk; no auth required.
 	if cfg.Server.AssetsPath != "" {
@@ -50,17 +48,28 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 	r.Get("/auth/callback", h.CallbackHandler)
 	r.Get("/auth/logout", h.LogoutHandler)
 
-	// All other routes require authentication.
+	// Home page: optional auth — logged-in users see their gallery, others see
+	// a landing page with a login link.
+	r.Group(func(r chi.Router) {
+		r.Use(authSvc.OptionalMiddleware)
+		r.Get("/", h.Home)
+	})
+
+	// Routes that require authentication.
 	r.Group(func(r chi.Router) {
 		r.Use(authSvc.Middleware)
 
-		r.Get("/", h.Home)
 		r.Post("/upload", h.Upload)
 		r.Get("/static/font.ttf", h.ServeFont)
 
-		// Image routes: alphanumeric IDs only.
-		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.View)
-		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}.png", cfg.ID.Length), h.ServeImage)
+		// Image view and raw PNG: rate-limited to prevent enumeration.
+		// Thumbnails and annotation are owner-only (no rate limit needed).
+		r.Group(func(r chi.Router) {
+			r.Use(rlMiddleware)
+			r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.View)
+			r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}.png", cfg.ID.Length), h.ServeImage)
+		})
+
 		r.Patch(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Update)
 		r.Delete(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Delete)
 		r.Get(fmt.Sprintf("/thumb/{id:[a-zA-Z0-9]{%d,}}.png", cfg.ID.Length), h.ServeThumb)

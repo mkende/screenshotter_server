@@ -21,9 +21,14 @@ type homeData struct {
 	HasNext  bool
 }
 
-// Home renders the authenticated user's screenshots with pagination.
+// Home renders the authenticated user's screenshots with pagination, or a
+// logged-out landing page for unauthenticated visitors.
 func (h *Handlers) Home(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		h.renderTemplate(w, "home-loggedout.html", nil)
+		return
+	}
 
 	if err := h.upsertUser(r.Context(), claims); err != nil {
 		slog.Error("upsert user on home", "user", claims.UserID, "err", err)

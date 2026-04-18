@@ -29,6 +29,18 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// OptionalMiddleware sets claims in the request context when the request is
+// authenticated, but always calls next regardless. Use this for routes that
+// serve different content to logged-in vs. logged-out users.
+func (s *Service) OptionalMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if claims := s.authenticate(r); claims != nil {
+			r = r.WithContext(context.WithValue(r.Context(), claimsKey, claims))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // authenticate resolves claims from the request using whichever backend is active.
 func (s *Service) authenticate(r *http.Request) *Claims {
 	if s.anonymousSvc {
