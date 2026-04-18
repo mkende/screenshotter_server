@@ -75,6 +75,11 @@ type OIDCConfig struct {
 	// GroupsClaim is the JWT claim name that contains group memberships.
 	// Defaults to "groups".
 	GroupsClaim string `toml:"groups_claim"`
+	// UsePKCE controls whether PKCE (Proof Key for Code Exchange) is used in the
+	// OAuth2 authorization code flow. When enabled, a code_verifier and
+	// code_challenge are generated and used during the login flow.
+	// Defaults to false.
+	UsePKCE bool `toml:"use_pkce"`
 }
 
 // DBConfig holds database connection settings.

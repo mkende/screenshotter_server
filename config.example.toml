@@ -156,8 +156,8 @@ dsn = "/var/lib/screenshotter/db.sqlite"
 
 # --- OIDC (OpenID Connect) ---
 # The server acts as an OIDC Relying Party using the authorization-code
-# flow with PKCE. Register the following redirect URI with your identity
-# provider: <canonical_address>/auth/callback
+# flow. Register the following redirect URI with your identity provider:
+# <canonical_address>/auth/callback
 # Requires canonical_address and jwt_secret (or jwt_secret_env_var) above.
 # [oidc]
 # enabled       = true
@@ -170,3 +170,6 @@ dsn = "/var/lib/screenshotter/db.sqlite"
 # scopes = ["openid", "email", "profile"]
 # JWT claim name that contains group memberships. Default: "groups".
 # groups_claim = "groups"
+# Use PKCE (Proof Key for Code Exchange) in the OAuth2 flow.
+# Default: false (standard authorization code flow).
+# use_pkce = false

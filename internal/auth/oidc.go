@@ -69,11 +69,6 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	verifier, challenge, err := pkce()
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
 	// Encode the post-login destination into the state so it survives the
 	// round-trip to the OIDC provider. Format: "<random>|<rd>". Reject
 	// protocol-relative URLs and off-site hrefs.
@@ -84,13 +79,23 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	state := random + "|" + rd
 
 	setOIDCCookie(w, oidcStateCookie, state, oidcCookieMaxAge)
-	setOIDCCookie(w, oidcVerifierCookie, verifier, oidcCookieMaxAge)
 
-	authURL := h.oauth2.AuthCodeURL(state,
-		oauth2.SetAuthURLParam("code_challenge", challenge),
-		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-	)
-	http.Redirect(w, r, authURL, http.StatusFound)
+	// Add PKCE support if enabled
+	if h.cfg.OIDC.UsePKCE {
+		verifier, challenge, err := pkce()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		setOIDCCookie(w, oidcVerifierCookie, verifier, oidcCookieMaxAge)
+		http.Redirect(w, r, h.oauth2.AuthCodeURL(state,
+			oauth2.SetAuthURLParam("code_challenge", challenge),
+			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+		), http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, h.oauth2.AuthCodeURL(state), http.StatusFound)
 }
 
 // HandleCallback completes the OIDC authorization-code + PKCE exchange,
@@ -102,16 +107,27 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
-	verifierCookie, err := r.Cookie(oidcVerifierCookie)
-	if err != nil {
-		http.Error(w, "missing verifier", http.StatusBadRequest)
-		return
-	}
 	clearOIDCCookie(w, oidcStateCookie)
 	clearOIDCCookie(w, oidcVerifierCookie)
 
-	token, err := h.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"),
-		oauth2.SetAuthURLParam("code_verifier", verifierCookie.Value))
+	// Get PKCE verifier if PKCE is enabled
+	var verifier string
+	if h.cfg.OIDC.UsePKCE {
+		verifierCookie, err := r.Cookie(oidcVerifierCookie)
+		if err != nil {
+			http.Error(w, "missing PKCE verifier", http.StatusBadRequest)
+			return
+		}
+		verifier = verifierCookie.Value
+	}
+
+	var token *oauth2.Token
+	if verifier != "" {
+		token, err = h.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"),
+			oauth2.SetAuthURLParam("code_verifier", verifier))
+	} else {
+		token, err = h.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"))
+	}
 	if err != nil {
 		http.Error(w, "token exchange failed", http.StatusInternalServerError)
 		return
