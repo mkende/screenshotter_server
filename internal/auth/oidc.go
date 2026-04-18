@@ -5,48 +5,66 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/mkende/screenshotter/server/internal/config"
 	"golang.org/x/oauth2"
 )
 
-// oidcService implements the OIDC authorization-code flow with PKCE.
-type oidcService struct {
-	provider *gooidc.Provider
-	verifier *gooidc.IDTokenVerifier
-	oauth2   oauth2.Config
+// OIDC short-lived cookie names used during the login round-trip.
+const (
+	oidcStateCookie    = "oidc_state"
+	oidcVerifierCookie = "oidc_verifier"
+	oidcCookieMaxAge   = 600 // 10 minutes
+)
+
+// userUpserter is the minimal DB interface used by the OIDC callback to
+// record users as they log in.
+type userUpserter interface {
+	UpsertUser(ctx context.Context, email, displayName, avatarURL string) error
 }
 
-func newOIDCService(ctx context.Context, cfg *config.Config) (*oidcService, error) {
-	provider, err := gooidc.NewProvider(ctx, cfg.Auth.OIDC.IssuerURL)
+// OIDCHandler handles the /auth/login, /auth/callback, and /auth/logout routes.
+type OIDCHandler struct {
+	cfg      *config.Config
+	provider *gooidc.Provider
+	oauth2   oauth2.Config
+	verifier *gooidc.IDTokenVerifier
+	users    userUpserter
+}
+
+// NewOIDCHandler creates a new OIDCHandler by contacting the OIDC provider's
+// discovery endpoint. Pass nil for users to disable user upserting.
+func NewOIDCHandler(ctx context.Context, cfg *config.Config, users userUpserter) (*OIDCHandler, error) {
+	provider, err := gooidc.NewProvider(ctx, cfg.OIDC.Issuer)
 	if err != nil {
-		return nil, fmt.Errorf("discover oidc provider: %w", err)
+		return nil, fmt.Errorf("oidc provider: %w", err)
 	}
-	oauth2cfg := oauth2.Config{
-		ClientID:     cfg.Auth.OIDC.ClientID,
-		ClientSecret: cfg.Auth.OIDC.ClientSecret,
-		Endpoint:     provider.Endpoint(),
-		RedirectURL:  cfg.Server.Domain + "/auth/callback",
-		Scopes:       cfg.Auth.OIDC.Scopes,
-	}
-	return &oidcService{
+	return &OIDCHandler{
+		cfg:      cfg,
 		provider: provider,
-		verifier: provider.Verifier(&gooidc.Config{ClientID: cfg.Auth.OIDC.ClientID}),
-		oauth2:   oauth2cfg,
+		oauth2: oauth2.Config{
+			ClientID:     cfg.OIDC.ClientID,
+			ClientSecret: cfg.OIDC.ClientSecret,
+			Endpoint:     provider.Endpoint(),
+			RedirectURL:  cfg.CanonicalAddress + "/auth/callback",
+			Scopes:       cfg.OIDC.Scopes,
+		},
+		verifier: provider.Verifier(&gooidc.Config{ClientID: cfg.OIDC.ClientID}),
+		users:    users,
 	}, nil
 }
 
-// LoginHandler redirects the browser to the OIDC provider.
-// It stores PKCE verifier + state in short-lived signed cookies.
-func (s *Service) LoginHandler(w http.ResponseWriter, r *http.Request) {
-	if s.oidcSvc == nil {
-		http.NotFound(w, r)
-		return
-	}
-	state, err := randomBase64(16)
+// HandleLogin redirects the browser to the OIDC provider, carrying a PKCE
+// verifier (in a short-lived cookie) and encoding the desired post-login
+// destination into the OAuth state parameter.
+func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+	random, err := randomB64(16)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -56,92 +74,145 @@ func (s *Service) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	// Store state and verifier in short-lived HttpOnly cookies (10 min).
-	setOIDCCookie(w, "oidc_state", state, 600)
-	setOIDCCookie(w, "oidc_verifier", verifier, 600)
+	// Encode the post-login destination into the state so it survives the
+	// round-trip to the OIDC provider. Format: "<random>|<rd>". Reject
+	// protocol-relative URLs and off-site hrefs.
+	rd := r.URL.Query().Get("rd")
+	if rd == "" || !strings.HasPrefix(rd, "/") || strings.HasPrefix(rd, "//") {
+		rd = "/"
+	}
+	state := random + "|" + rd
 
-	authURL := s.oidcSvc.oauth2.AuthCodeURL(state,
+	setOIDCCookie(w, oidcStateCookie, state, oidcCookieMaxAge)
+	setOIDCCookie(w, oidcVerifierCookie, verifier, oidcCookieMaxAge)
+
+	authURL := h.oauth2.AuthCodeURL(state,
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	)
 	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
-// CallbackHandler exchanges the auth code for an ID token, upserts the user,
-// and issues a session cookie.
-func (s *Service) CallbackHandler(db userUpserter) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if s.oidcSvc == nil {
-			http.NotFound(w, r)
-			return
-		}
-		// Validate state.
-		stateCookie, err := r.Cookie("oidc_state")
-		if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
-			http.Error(w, "invalid state", http.StatusBadRequest)
-			return
-		}
-		verifierCookie, err := r.Cookie("oidc_verifier")
-		if err != nil {
-			http.Error(w, "missing verifier", http.StatusBadRequest)
-			return
-		}
-		clearOIDCCookie(w, "oidc_state")
-		clearOIDCCookie(w, "oidc_verifier")
+// HandleCallback completes the OIDC authorization-code + PKCE exchange,
+// issues a session JWT cookie, and redirects to the destination encoded in
+// the state.
+func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	stateCookie, err := r.Cookie(oidcStateCookie)
+	if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
+	verifierCookie, err := r.Cookie(oidcVerifierCookie)
+	if err != nil {
+		http.Error(w, "missing verifier", http.StatusBadRequest)
+		return
+	}
+	clearOIDCCookie(w, oidcStateCookie)
+	clearOIDCCookie(w, oidcVerifierCookie)
 
-		// Exchange code.
-		token, err := s.oidcSvc.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"),
-			oauth2.SetAuthURLParam("code_verifier", verifierCookie.Value))
-		if err != nil {
-			http.Error(w, "code exchange failed", http.StatusBadRequest)
-			return
+	token, err := h.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"),
+		oauth2.SetAuthURLParam("code_verifier", verifierCookie.Value))
+	if err != nil {
+		http.Error(w, "token exchange failed", http.StatusInternalServerError)
+		return
+	}
+	rawID, ok := token.Extra("id_token").(string)
+	if !ok {
+		http.Error(w, "missing id_token", http.StatusInternalServerError)
+		return
+	}
+	idToken, err := h.verifier.Verify(r.Context(), rawID)
+	if err != nil {
+		http.Error(w, "id_token verification failed", http.StatusUnauthorized)
+		return
+	}
+
+	var claims struct {
+		Email   string `json:"email"`
+		Name    string `json:"name"`
+		Picture string `json:"picture"`
+	}
+	if err := idToken.Claims(&claims); err != nil {
+		http.Error(w, "claims extraction failed", http.StatusInternalServerError)
+		return
+	}
+	var groups []string
+	var raw map[string]json.RawMessage
+	if err := idToken.Claims(&raw); err == nil {
+		if gc, ok := raw[h.cfg.OIDC.GroupsClaim]; ok {
+			_ = json.Unmarshal(gc, &groups)
 		}
-		rawID, ok := token.Extra("id_token").(string)
-		if !ok {
-			http.Error(w, "no id_token in response", http.StatusBadRequest)
-			return
+	}
+
+	id := &Identity{
+		Email:       claims.Email,
+		DisplayName: claims.Name,
+		AvatarURL:   claims.Picture,
+		Groups:      groups,
+		Source:      AuthSourceOIDC,
+	}
+	id.IsAdmin = isAdmin(h.cfg, id)
+
+	if h.users != nil {
+		if err := h.users.UpsertUser(r.Context(), id.Email, id.DisplayName, id.AvatarURL); err != nil {
+			slog.WarnContext(r.Context(), "oidc: user upsert failed", "email", id.Email, "error", err)
 		}
-		idToken, err := s.oidcSvc.verifier.Verify(r.Context(), rawID)
-		if err != nil {
-			http.Error(w, "invalid id_token", http.StatusBadRequest)
-			return
+	}
+
+	if err := issueSessionCookie(w, h.cfg, id); err != nil {
+		http.Error(w, "session creation failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Extract the post-login destination from the state.
+	dest := "/"
+	if parts := strings.SplitN(stateCookie.Value, "|", 2); len(parts) == 2 {
+		if rd := parts[1]; strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") {
+			dest = rd
 		}
-		var claims struct {
-			Sub   string `json:"sub"`
-			Email string `json:"email"`
-			Name  string `json:"name"`
-		}
-		if err := idToken.Claims(&claims); err != nil {
-			http.Error(w, "failed to read claims", http.StatusInternalServerError)
-			return
-		}
-		if err := db.UpsertUser(r.Context(), claims.Sub, claims.Name, claims.Email); err != nil {
-			http.Error(w, "failed to save user", http.StatusInternalServerError)
-			return
-		}
-		if err := s.issueSessionCookie(w, claims.Sub, claims.Name, claims.Email); err != nil {
-			http.Error(w, "failed to issue session", http.StatusInternalServerError)
-			return
-		}
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+	}
+	http.Redirect(w, r, dest, http.StatusFound)
+}
+
+// HandleLogout clears the session cookie and redirects to home.
+func (h *OIDCHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	clearSessionCookie(w)
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// OIDCMiddleware reads the session JWT cookie and populates the identity
+// context when the cookie is valid. No-op when OIDC is disabled.
+func OIDCMiddleware(cfg *config.Config, logger *slog.Logger) func(http.Handler) http.Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !cfg.OIDC.Enabled {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if FromContext(r.Context()) != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			id := parseSessionCookie(r, cfg)
+			if id == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			logger.DebugContext(r.Context(), "oidc: identity established from session cookie",
+				"email", id.Email,
+				"is_admin", id.IsAdmin)
+			next.ServeHTTP(w, r.WithContext(WithIdentity(r.Context(), id)))
+		})
 	}
 }
 
-// LogoutHandler clears the session cookie and redirects to /.
-func (s *Service) LogoutHandler(w http.ResponseWriter, r *http.Request) {
-	clearSessionCookie(w)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-// userUpserter is the subset of db.DB used by CallbackHandler.
-type userUpserter interface {
-	UpsertUser(ctx context.Context, id, displayName, email string) error
-}
-
-// --- PKCE helpers ---
+// --- PKCE + cookie helpers -------------------------------------------------
 
 func pkce() (verifier, challenge string, err error) {
-	verifier, err = randomBase64(32)
+	verifier, err = randomB64(32)
 	if err != nil {
 		return
 	}
@@ -150,15 +221,13 @@ func pkce() (verifier, challenge string, err error) {
 	return
 }
 
-func randomBase64(n int) (string, error) {
+func randomB64(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
-
-// --- OIDC flow cookie helpers ---
 
 func setOIDCCookie(w http.ResponseWriter, name, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
@@ -182,5 +251,3 @@ func clearOIDCCookie(w http.ResponseWriter, name string) {
 		MaxAge:   -1,
 	})
 }
-
-

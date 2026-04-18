@@ -19,18 +19,16 @@ type Handlers struct {
 	cfg     *config.Config
 	db      *db.DB
 	storage *storage.Storage
-	auth    *auth.Service
 	tmpls   map[string]*template.Template
 	fontTTF []byte
 }
 
 // New creates a Handlers instance.
-func New(cfg *config.Config, database *db.DB, stor *storage.Storage, authSvc *auth.Service, tmpls map[string]*template.Template, fontTTF []byte) *Handlers {
+func New(cfg *config.Config, database *db.DB, stor *storage.Storage, tmpls map[string]*template.Template, fontTTF []byte) *Handlers {
 	return &Handlers{
 		cfg:     cfg,
 		db:      database,
 		storage: stor,
-		auth:    authSvc,
 		tmpls:   tmpls,
 		fontTTF: fontTTF,
 	}
@@ -57,6 +55,23 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// pageData is the common set of fields included on every rendered page. Page
+// templates extend it by embedding PageData and adding their own fields.
+type pageData struct {
+	User        *auth.Identity
+	OIDCEnabled bool
+	Title       string
+}
+
+// newPageData returns a pageData populated with the common fields.
+func (h *Handlers) newPageData(r *http.Request) pageData {
+	return pageData{
+		User:        auth.FromContext(r.Context()),
+		OIDCEnabled: h.cfg.OIDC.Enabled,
+		Title:       h.cfg.Title,
+	}
+}
+
 // renderTemplate executes the named page template, writing 500 on failure.
 // The base layout is always rendered via ExecuteTemplate(w, "base", data).
 func (h *Handlers) renderTemplate(w http.ResponseWriter, page string, data any) {
@@ -73,7 +88,6 @@ func (h *Handlers) renderTemplate(w http.ResponseWriter, page string, data any) 
 }
 
 // upsertUser ensures the authenticated user exists in the DB.
-// Required for the Tailscale backend, which has no explicit login step.
-func (h *Handlers) upsertUser(ctx context.Context, claims *auth.Claims) error {
-	return h.db.UpsertUser(ctx, claims.UserID, claims.DisplayName, claims.Email)
+func (h *Handlers) upsertUser(ctx context.Context, id *auth.Identity) error {
+	return h.db.UpsertUser(ctx, id.Email, id.DisplayName, id.AvatarURL)
 }

@@ -19,7 +19,11 @@ type updateRequest struct {
 // Update handles PATCH /{id}: updates the title and/or source URL of an image
 // owned by the authenticated user.
 func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
+	identity := auth.FromContext(r.Context())
+	if identity == nil {
+		writeJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	var req updateRequest
@@ -28,20 +32,18 @@ func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A blank title means "no title set"; a non-empty title is stored as-is.
 	req.Title = strings.TrimSpace(req.Title)
 	var title *string
 	if req.Title != "" {
 		title = &req.Title
 	}
 
-	// A blank source_url clears it (stores NULL).
 	var sourceURL *string
 	if s := strings.TrimSpace(req.SourceURL); s != "" {
 		sourceURL = &s
 	}
 
-	updated, err := h.db.UpdateImage(r.Context(), id, claims.UserID, title, sourceURL)
+	updated, err := h.db.UpdateImage(r.Context(), id, identity.Email, title, sourceURL)
 	if err != nil {
 		slog.Error("update image", "id", id, "err", err)
 		writeJSONError(w, http.StatusInternalServerError, "internal error")

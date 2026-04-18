@@ -1,101 +1,172 @@
 # Screenshotter server configuration
 # Copy this file to config.toml and fill in the required fields.
 
+# Public-facing base URL (no trailing slash), including scheme.
+# Required when OIDC is enabled (used to build the callback URL). When set,
+# any request arriving on a different scheme or host is redirected here with
+# a 301, preserving path and query.
+canonical_address = "https://screenshots.example.com"
+
+# TCP address the HTTP server binds to. A reverse proxy (nginx, Caddy, ...)
+# is expected to handle TLS termination. Defaults to "0.0.0.0:8080".
+# listen_addr = "0.0.0.0:8080"
+
+# Human-readable name shown in the UI. Defaults to "Screenshotter".
+# title = "Screenshotter"
+
+# Minimum severity of emitted log messages: "debug", "info", "warn", "error".
+# Defaults to "info".
+# log_level = "info"
+
+# Path to a custom favicon. When empty, falls back to
+# <server.assets_path>/favicon.ico when that directory is configured.
+# favicon_path = "/var/lib/screenshotter/favicon.ico"
+
+# CIDRs of reverse proxies whose forwarding headers are trusted:
+#   - X-Forwarded-Proto / X-Forwarded-For / X-Real-IP for scheme & client IP
+#   - Tailscale-User-* and Remote-* for header-based authentication
+# Required when tailscale or proxy_auth is enabled. Omit or leave empty to
+# use the direct TCP peer address for everything.
+# trusted_proxy = ["127.0.0.1/32", "::1/128", "10.0.0.0/8"]
+
+# HMAC-SHA256 signing secret for JWT session cookies. Required when OIDC is
+# enabled. Must be at least 32 characters. Generate with: openssl rand -hex 32
+# Mutually exclusive with jwt_secret_env_var.
+# jwt_secret = "replace-with-a-long-random-secret-at-least-32-chars"
+# jwt_secret_env_var = "SCREENSHOTTER_JWT_SECRET"
+
+# Users with admin privileges. AdminEmails is matched against the
+# authenticated user's email; AdminGroups is matched against the groups
+# claim (OIDC) or the configured proxy groups header.
+# admin_emails = ["alice@example.com"]
+# admin_groups = ["screenshotter-admins"]
+
+# ---------------------------------------------------------------------------
+# Server (storage & upload limits)
+# ---------------------------------------------------------------------------
+
 [server]
-# Public-facing base URL (no trailing slash). Used to build redirect URLs.
-domain = "https://screenshots.example.com"
-
-# Address and port to listen on. The server expects a reverse proxy (nginx,
-# Caddy, etc.) to handle TLS termination.
-listen = ":8080"
-
-# Directory where uploaded images and thumbnails are stored.
-# The server creates this directory and a "thumbs/" subdirectory if needed.
+# Directory where uploaded images and thumbnails are stored. The server
+# creates this directory and a "thumbs/" subdirectory if needed.
 storage_path = "/var/lib/screenshotter/images"
 
-# Maximum upload size in megabytes (default: 4).
-max_upload_mb = 4
+# Maximum upload size in megabytes. Default: 4.
+# max_upload_mb = 4
 
-# Optional directory of static assets served by the server.
-# When set, /favicon.ico is served from <assets_path>/favicon.ico.
+# Optional directory of static assets served by the server. When set,
+# /favicon.ico is served from <assets_path>/favicon.ico (unless overridden
+# by the top-level favicon_path).
 # Generate the favicon by running: node shared/generate-icons.js
 # assets_path = "/var/lib/screenshotter/assets"
 
-# CIDRs of reverse proxies whose X-Forwarded-For / X-Real-IP headers are
-# trusted for real-IP resolution and rate limiting.  Also restricts which
-# peers the Tailscale auth backend will accept headers from.
-# Omit or leave empty to use the direct TCP peer address for everything.
-#
-# trusted_proxy_ips = ["127.0.0.1/8", "::1/128", "10.0.0.0/8"]
+# ---------------------------------------------------------------------------
+# Image IDs
+# ---------------------------------------------------------------------------
 
 [id]
-# Length of the random alphanumeric image ID (default: 8, minimum: 4).
-length = 8
+# Length of the random alphanumeric image ID. Default: 8, minimum: 4.
+# length = 8
+
+# ---------------------------------------------------------------------------
+# Session cookies
+# ---------------------------------------------------------------------------
 
 [session]
-# HMAC-SHA256 signing secret for JWT session tokens.
-# Must be at least 32 characters. Generate with: openssl rand -hex 32
-secret = "replace-with-a-long-random-secret-at-least-32-chars"
+# How long an issued session JWT remains valid. Default: "720h" (30 days).
+# ttl = "720h"
 
-# How long a session remains valid (default: "720h" = 30 days).
-# Accepts Go duration strings: "24h", "7d" etc.
-ttl = "720h"
+# ---------------------------------------------------------------------------
+# Home-page gallery layout
+# ---------------------------------------------------------------------------
+
+[home]
+# Maximum number of thumbnail columns (1–10). Default: 5.
+# cols = 5
+# Number of screenshots shown per page. Default: 20.
+# page_size = 20
+
+# ---------------------------------------------------------------------------
+# CORS (Chrome extension uploads)
+# ---------------------------------------------------------------------------
 
 [cors]
 # Chrome extension IDs allowed to make credentialed cross-origin requests.
-# Replace with your actual extension ID once it is known.
 # Multiple IDs can be listed (e.g. dev + production builds).
 extension_ids = ["<your-extension-id-here>"]
 
-[database]
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+[db]
 # Database backend: "sqlite" or "postgres".
-backend = "sqlite"
+driver = "sqlite"
 
 # For SQLite: path to the .sqlite file.
 dsn = "/var/lib/screenshotter/db.sqlite"
 
 # For PostgreSQL, comment out the lines above and use:
-# backend = "postgres"
-# dsn = "postgres://user:password@localhost/screenshotter?sslmode=require"
+# driver = "postgres"
+# dsn    = "postgres://user:password@localhost/screenshotter?sslmode=require"
 
 # ---------------------------------------------------------------------------
-# Rate limiting
+# Rate limiting (applied to the unauthenticated image routes)
 # ---------------------------------------------------------------------------
 
 [ratelimit]
-# Maximum requests per IP per second (default: 5).  Set to 0 to disable.
-requests_per_second = 5
-
-# Maximum requests per IP per minute (default: 50).  Set to 0 to disable.
-requests_per_minute = 50
+# Maximum requests per IP per second. Default: 5. Set to 0 to disable.
+# requests_per_second = 5
+# Maximum requests per IP per minute. Default: 50. Set to 0 to disable.
+# requests_per_minute = 50
 
 # ---------------------------------------------------------------------------
-# Authentication — exactly one backend must be configured.
+# Authentication
+#
+# Each backend is an independent middleware gated by its own `enabled` flag.
+# At least one must be enabled. When several are enabled, they run in a
+# chain (Tailscale → ProxyAuth → OIDC → Anonymous) and the first one to
+# produce an identity wins.
 # ---------------------------------------------------------------------------
 
-[auth]
-# Active authentication backend: "oidc" or "tailscale".
-backend = "oidc"
+# --- Anonymous (development / private instances) ---
+# Treat every request as a single shared anonymous user. No login flow.
+# WARNING: do not enable on a publicly reachable server.
+[anonymous]
+enabled = true
+# Grants the anonymous user full admin privileges. Default: false.
+# is_admin = false
+
+# --- Tailscale (header-based) ---
+# Identity is read from Tailscale-User-Login / Tailscale-User-Name headers
+# injected by a trusted Tailscale proxy. No explicit login step.
+# Requires `trusted_proxy` above to be set.
+# [tailscale]
+# enabled = true
+
+# --- Proxy auth (header-based) ---
+# Identity is read from Remote-* headers injected by a trusted reverse
+# proxy (Authelia, oauth2-proxy, ...). Requires `trusted_proxy` above.
+# [proxy_auth]
+# enabled = true
+# Override the default header names if your proxy uses different ones.
+# user_header   = "Remote-User"
+# email_header  = "Remote-Email"
+# name_header   = "Remote-Name"
+# groups_header = "Remote-Groups"
 
 # --- OIDC (OpenID Connect) ---
-# The server acts as an OIDC Relying Party using the authorization-code flow
-# with PKCE. Register the following redirect URI with your identity provider:
-#
-#   https://<domain>/auth/callback
-#
-# Tested with Google, GitHub (via Dex), Keycloak, and any standard OIDC IdP.
-[auth.oidc]
-issuer_url    = "https://accounts.google.com"
-client_id     = "<your-client-id>"
-client_secret = "<your-client-secret>"
-
-# Scopes to request. Defaults to ["openid", "email", "profile"] if omitted.
+# The server acts as an OIDC Relying Party using the authorization-code
+# flow with PKCE. Register the following redirect URI with your identity
+# provider: <canonical_address>/auth/callback
+# Requires canonical_address and jwt_secret (or jwt_secret_env_var) above.
+# [oidc]
+# enabled       = true
+# issuer        = "https://accounts.google.com"
+# client_id     = "<your-client-id>"
+# client_secret = "<your-client-secret>"
+# Alternatively, read client_secret from an environment variable:
+# client_secret_env_var = "SCREENSHOTTER_OIDC_CLIENT_SECRET"
+# Scopes to request. Default: ["openid", "email", "profile"].
 # scopes = ["openid", "email", "profile"]
-
-# --- Tailscale ---
-# When enabled, user identity is read from headers injected by the Tailscale
-# proxy (Tailscale-User-Login, Tailscale-User-Name). No explicit login step.
-# Switch to this section by setting auth.backend = "tailscale" above.
-# [auth.tailscale]
-# No Tailscale-specific options — trusted proxy IPs come from
-# server.trusted_proxy_ips above.
+# JWT claim name that contains group memberships. Default: "groups".
+# groups_claim = "groups"

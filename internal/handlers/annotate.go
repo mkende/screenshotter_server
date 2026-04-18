@@ -12,13 +12,17 @@ import (
 )
 
 type annotateData struct {
-	User  *auth.Claims
+	pageData
 	Image *db.Image
 }
 
 // AnnotateView serves the annotation editor page for GET /{id}/annotate.
 func (h *Handlers) AnnotateView(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
+	identity := auth.FromContext(r.Context())
+	if identity == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	img, err := h.db.GetImage(r.Context(), id)
@@ -31,17 +35,24 @@ func (h *Handlers) AnnotateView(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if img.OwnerID != claims.UserID {
+	if img.OwnerID != identity.Email {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	h.renderTemplate(w, "annotate.html", annotateData{User: claims, Image: img})
+	h.renderTemplate(w, "annotate.html", annotateData{
+		pageData: h.newPageData(r),
+		Image:    img,
+	})
 }
 
 // Annotate handles POST /{id}/annotate: replaces the stored PNG with the
 // annotated version rendered client-side by Fabric.js.
 func (h *Handlers) Annotate(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
+	identity := auth.FromContext(r.Context())
+	if identity == nil {
+		writeJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id := chi.URLParam(r, "id")
 
 	img, err := h.db.GetImage(r.Context(), id)
@@ -54,7 +65,7 @@ func (h *Handlers) Annotate(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "image not found")
 		return
 	}
-	if img.OwnerID != claims.UserID {
+	if img.OwnerID != identity.Email {
 		writeJSONError(w, http.StatusForbidden, "not the owner of this image")
 		return
 	}

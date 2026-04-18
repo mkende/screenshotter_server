@@ -4,33 +4,64 @@ package server
 import (
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/config"
 	"github.com/mkende/screenshotter/server/internal/handlers"
 	"github.com/mkende/screenshotter/server/internal/ratelimit"
+	mw "github.com/mkende/screenshotter/server/internal/server/middleware"
 )
 
 // New builds and returns the main HTTP handler.
-func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.Handler {
+//
+// oidcHandler may be nil when OIDC is not enabled; in that case the /auth/*
+// routes respond with 404.
+func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler, logger *slog.Logger) http.Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	r := chi.NewRouter()
 
-	// Parse trusted proxy CIDRs once at startup.
-	trustedNets := parseCIDRs(cfg.Server.TrustedProxyIPs)
-
-	r.Use(realIPMiddleware(trustedNets))
-	r.Use(middleware.RequestID)
-	r.Use(requestLogger)
-	r.Use(middleware.Recoverer)
+	// Order is critical here:
+	//   1. PreserveRemoteAddr saves the raw TCP peer before RealIP rewrites it.
+	//   2. RealIP rewrites r.RemoteAddr from X-Forwarded-For / X-Real-IP (chi
+	//      trusts the headers unconditionally; CIDR trust is enforced by the
+	//      auth middlewares reading the preserved peer from context).
+	//   3. RequestLogger opens a log span and allocates RequestAttrs so later
+	//      middleware can enrich the line.
+	//   4. Recoverer catches panics from subsequent middleware and handlers.
+	//   5. DomainRedirect issues 301 to the canonical address.
+	//   6. SecurityHeaders attaches defensive response headers.
+	//   7. CORS answers extension preflights and sets credential headers.
+	//   8. Auth providers: Tailscale → ProxyAuth → OIDC session → Anonymous.
+	//      Each no-ops when disabled or when a prior provider identified the
+	//      user.
+	//   9. LogEnricher reads the identity and fills request-scoped logger +
+	//      log attrs.
+	r.Use(mw.PreserveRemoteAddr)
+	r.Use(chimw.RealIP)
+	r.Use(chimw.RequestID)
+	r.Use(mw.RequestLogger(logger))
+	r.Use(chimw.Recoverer)
+	// CORS before DomainRedirect so that preflight OPTIONS from the Chrome
+	// extension receives a proper 204 with headers even when the request
+	// arrives on a non-canonical host.
 	r.Use(corsMiddleware(cfg))
+	r.Use(mw.DomainRedirect(cfg))
+	r.Use(mw.SecurityHeaders(cfg))
+
+	r.Use(auth.TailscaleMiddleware(cfg, logger))
+	r.Use(auth.ProxyAuthMiddleware(cfg, logger))
+	r.Use(auth.OIDCMiddleware(cfg, logger))
+	r.Use(auth.AnonymousMiddleware(cfg, logger))
+
+	r.Use(mw.LogEnricher(logger))
 
 	rl := ratelimit.NewMemory(ratelimit.Config{
 		RequestsPerSecond: cfg.RateLimit.RequestsPerSecond,
@@ -39,36 +70,38 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 	rlMiddleware := ratelimit.Middleware(rl)
 
 	// Favicon — served directly from disk; no auth required.
-	if cfg.Server.AssetsPath != "" {
-		r.Get("/favicon.ico", faviconHandler(cfg.Server.AssetsPath))
+	if faviconFile := resolveFaviconPath(cfg); faviconFile != "" {
+		r.Get("/favicon.ico", faviconHandler(faviconFile))
 	}
 
-	// Auth routes (no session required).
-	r.Get("/auth/login", h.LoginHandler)
-	r.Get("/auth/callback", h.CallbackHandler)
-	r.Get("/auth/logout", h.LogoutHandler)
+	// OIDC routes: present only when OIDC is enabled. The middleware stack
+	// (DomainRedirect, SecurityHeaders, CORS, auth providers) still runs so
+	// that /auth/callback is reached only on the canonical domain.
+	if cfg.OIDC.Enabled && oidcHandler != nil {
+		r.Get("/auth/login", oidcHandler.HandleLogin)
+		r.Get("/auth/callback", oidcHandler.HandleCallback)
+		r.Get("/auth/logout", oidcHandler.HandleLogout)
+	}
 
-	// Home page: optional auth — logged-in users see their gallery, others see
-	// a landing page with a login link.
+	// Home page: optional auth — logged-in users see their gallery; others see
+	// the logged-out landing page.
+	r.Get("/", h.Home)
+
+	// Unauthenticated image access: GET /{id} and GET /{id}.png are
+	// rate-limited — the limit applies to every request including 404s to
+	// prevent ID enumeration by unauthenticated scrapers.
 	r.Group(func(r chi.Router) {
-		r.Use(authSvc.OptionalMiddleware)
-		r.Get("/", h.Home)
+		r.Use(rlMiddleware)
+		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.View)
+		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}.png", cfg.ID.Length), h.ServeImage)
 	})
 
 	// Routes that require authentication.
 	r.Group(func(r chi.Router) {
-		r.Use(authSvc.Middleware)
+		r.Use(auth.RequireAuth(cfg))
 
 		r.Post("/upload", h.Upload)
 		r.Get("/static/font.ttf", h.ServeFont)
-
-		// Image view and raw PNG: rate-limited to prevent enumeration.
-		// Thumbnails and annotation are owner-only (no rate limit needed).
-		r.Group(func(r chi.Router) {
-			r.Use(rlMiddleware)
-			r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.View)
-			r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}.png", cfg.ID.Length), h.ServeImage)
-		})
 
 		r.Patch(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Update)
 		r.Delete(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Delete)
@@ -80,13 +113,23 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 	return r
 }
 
-// ── Favicon ───────────────────────────────────────────────────────────────────
+// resolveFaviconPath returns the absolute favicon path, preferring
+// cfg.FaviconPath over cfg.Server.AssetsPath/favicon.ico. Returns "" if
+// neither is configured.
+func resolveFaviconPath(cfg *config.Config) string {
+	if cfg.FaviconPath != "" {
+		return cfg.FaviconPath
+	}
+	if cfg.Server.AssetsPath != "" {
+		return filepath.Join(cfg.Server.AssetsPath, "favicon.ico")
+	}
+	return ""
+}
 
-// faviconHandler serves favicon.ico from assetsPath.
-func faviconHandler(assetsPath string) http.HandlerFunc {
-	faviconFile := filepath.Join(assetsPath, "favicon.ico")
+// faviconHandler serves favicon.ico from path.
+func faviconHandler(path string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		f, err := os.Open(faviconFile)
+		f, err := os.Open(path)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -102,130 +145,11 @@ func faviconHandler(assetsPath string) http.HandlerFunc {
 	}
 }
 
-// ── Real-IP middleware ────────────────────────────────────────────────────────
-
-// realIPMiddleware replaces chi's middleware.RealIP.  It stores the raw TCP
-// peer IP in the request context (via auth.WithPeerIP so Tailscale auth can
-// read it after any header-based rewriting), then rewrites r.RemoteAddr from
-// X-Forwarded-For / X-Real-IP only when the peer is in trustedNets.
-func realIPMiddleware(trustedNets []*net.IPNet) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			peer := bareIP(r.RemoteAddr)
-
-			// Always save the raw peer before any rewriting.
-			r = auth.WithPeerIP(r, peer)
-
-			if len(trustedNets) > 0 && ipInNets(peer, trustedNets) {
-				if realIP := firstForwardedFor(r); realIP != "" {
-					r.RemoteAddr = realIP
-				}
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// firstForwardedFor returns the leftmost (client) IP from X-Forwarded-For, or
-// the value of X-Real-IP, whichever is present first (X-Forwarded-For wins).
-// Returns "" if neither header is set or valid.
-func firstForwardedFor(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// X-Forwarded-For: client, proxy1, proxy2 — take the leftmost entry.
-		if idx := strings.IndexByte(xff, ','); idx >= 0 {
-			xff = strings.TrimSpace(xff[:idx])
-		} else {
-			xff = strings.TrimSpace(xff)
-		}
-		if net.ParseIP(xff) != nil {
-			return xff
-		}
-	}
-	if xri := strings.TrimSpace(r.Header.Get("X-Real-IP")); xri != "" {
-		if net.ParseIP(xri) != nil {
-			return xri
-		}
-	}
-	return ""
-}
-
-func bareIP(addr string) string {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return addr
-	}
-	return host
-}
-
-func parseCIDRs(cidrs []string) []*net.IPNet {
-	nets := make([]*net.IPNet, 0, len(cidrs))
-	for _, cidr := range cidrs {
-		_, network, err := net.ParseCIDR(cidr)
-		if err == nil {
-			nets = append(nets, network)
-		}
-	}
-	return nets
-}
-
-func ipInNets(ip string, nets []*net.IPNet) bool {
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
-		return false
-	}
-	for _, n := range nets {
-		if n.Contains(parsed) {
-			return true
-		}
-	}
-	return false
-}
-
-// ── Request logger ────────────────────────────────────────────────────────────
-
-// statusRecorder wraps http.ResponseWriter to capture the response status code.
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (sr *statusRecorder) WriteHeader(code int) {
-	sr.status = code
-	sr.ResponseWriter.WriteHeader(code)
-}
-
-// requestLogger logs one structured line per request after it completes.
-// It reads auth claims from the context after the handler runs, so user info
-// is present for authenticated routes.
-func requestLogger(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(rec, r)
-
-		attrs := []any{
-			"method", r.Method,
-			"path", r.URL.Path,
-			"status", rec.status,
-			"ip", bareIP(r.RemoteAddr),
-			"duration_ms", time.Since(start).Milliseconds(),
-			"request_id", middleware.GetReqID(r.Context()),
-		}
-		if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-			attrs = append(attrs, "user_id", claims.UserID, "email", claims.Email)
-		} else {
-			attrs = append(attrs, "user_id", nil)
-		}
-		slog.Info("request", attrs...)
-	})
-}
-
-// ── CORS middleware ───────────────────────────────────────────────────────────
-
-// corsMiddleware sets CORS headers for requests from registered extension origins.
+// corsMiddleware sets CORS headers for requests from registered extension
+// origins. Non-matching origins are passed through unchanged, which is
+// important because the Chrome extension's Origin header starts with
+// chrome-extension:// and same-origin browser requests have no Origin.
 func corsMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
-	// Build a set of allowed origins for O(1) lookup.
 	allowed := make(map[string]struct{}, len(cfg.CORS.ExtensionIDs))
 	for _, id := range cfg.CORS.ExtensionIDs {
 		allowed["chrome-extension://"+id] = struct{}{}

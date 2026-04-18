@@ -1,58 +1,94 @@
 package auth
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/mkende/screenshotter/server/internal/config"
 )
 
-// Middleware returns an http.Handler that enforces authentication.
-// For browser requests it redirects to /auth/login on failure.
-// For API requests (Accept: application/json or Upload endpoint) it returns 401.
-func (s *Service) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims := s.authenticate(r)
-		if claims == nil {
-			if isAPIRequest(r) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
-					"login_url": s.cfg.Server.Domain + "/auth/login",
-				})
-			} else {
-				http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
-			}
-			return
-		}
-		ctx := context.WithValue(r.Context(), claimsKey, claims)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// OptionalMiddleware sets claims in the request context when the request is
-// authenticated, but always calls next regardless. Use this for routes that
-// serve different content to logged-in vs. logged-out users.
-func (s *Service) OptionalMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if claims := s.authenticate(r); claims != nil {
-			r = r.WithContext(context.WithValue(r.Context(), claimsKey, claims))
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// authenticate resolves claims from the request using whichever backend is active.
-func (s *Service) authenticate(r *http.Request) *Claims {
-	if s.anonymousSvc {
-		return anonymousClaims
-	}
-	if s.tsSvc != nil {
-		return s.tsSvc.claimsFromHeaders(r)
-	}
-	return s.parseSessionCookie(r)
-}
-
-// isAPIRequest returns true for requests that should get JSON error responses.
+// isAPIRequest reports whether the request is one that expects a JSON
+// response on auth failure (401/403) rather than an HTML redirect.
+//
+// Screenshotter's Chrome extension posts to /upload and expects JSON. The
+// annotation editor POSTs to /{id}/annotate with Content-Type: image/png and
+// also expects JSON. Browser requests that render HTML should be redirected.
 func isAPIRequest(r *http.Request) bool {
-	return r.URL.Path == "/upload" || r.Header.Get("Accept") == "application/json"
+	if r.URL.Path == "/upload" {
+		return true
+	}
+	if strings.HasSuffix(r.URL.Path, "/annotate") && r.Method == http.MethodPost {
+		return true
+	}
+	// Any request that explicitly asks for JSON, or any non-safe method, is
+	// treated as an API request.
+	if strings.Contains(r.Header.Get("Accept"), "application/json") {
+		return true
+	}
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
+}
+
+// writeJSONError writes a JSON {"error": message} response.
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message}) //nolint:errcheck
+}
+
+// LoginRedirect redirects the user to the OIDC login page, encoding the
+// current request URI as the ?rd= post-login destination.
+func LoginRedirect(w http.ResponseWriter, r *http.Request) {
+	loginURL := "/auth/login?rd=" + url.QueryEscape(r.URL.RequestURI())
+	http.Redirect(w, r, loginURL, http.StatusFound)
+}
+
+// RequireAuth returns a middleware that enforces authentication on a route.
+//
+// For API-style requests an unauthenticated caller receives a 401 JSON
+// response. For browser HTML requests, if OIDC is enabled the user is
+// redirected to the login page; otherwise a 403 is written.
+func RequireAuth(cfg *config.Config) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if FromContext(r.Context()) != nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if isAPIRequest(r) {
+				writeJSONError(w, http.StatusUnauthorized, "authentication required")
+				return
+			}
+			if cfg.OIDC.Enabled {
+				LoginRedirect(w, r)
+				return
+			}
+			http.Error(w, "forbidden", http.StatusForbidden)
+		})
+	}
+}
+
+// RequireAdmin returns a middleware that enforces admin access. Non-admin
+// requests are passed to deniedHandler (HTML) or receive a 403 JSON response
+// (API).
+func RequireAdmin(deniedHandler http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id := FromContext(r.Context())
+			if id != nil && id.IsAdmin {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if isAPIRequest(r) {
+				writeJSONError(w, http.StatusForbidden, "admin privileges required")
+				return
+			}
+			deniedHandler.ServeHTTP(w, r)
+		})
+	}
 }

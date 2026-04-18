@@ -10,10 +10,9 @@ import (
 )
 
 type homeData struct {
-	User     *auth.Claims
+	pageData
 	Images   []db.Image
 	HomeCols int
-	// Pagination
 	Page     int
 	PrevPage int
 	NextPage int
@@ -24,14 +23,14 @@ type homeData struct {
 // Home renders the authenticated user's screenshots with pagination, or a
 // logged-out landing page for unauthenticated visitors.
 func (h *Handlers) Home(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
-	if claims == nil {
-		h.renderTemplate(w, "home-loggedout.html", nil)
+	id := auth.FromContext(r.Context())
+	if id == nil {
+		h.renderTemplate(w, "home-loggedout.html", h.newPageData(r))
 		return
 	}
 
-	if err := h.upsertUser(r.Context(), claims); err != nil {
-		slog.Error("upsert user on home", "user", claims.UserID, "err", err)
+	if err := h.upsertUser(r.Context(), id); err != nil {
+		slog.Error("upsert user on home", "email", id.Email, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -43,10 +42,9 @@ func (h *Handlers) Home(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := (page - 1) * pageSize
 
-	// Fetch one extra to detect whether a next page exists.
-	imgs, err := h.db.ListRecentImages(r.Context(), claims.UserID, pageSize+1, offset)
+	imgs, err := h.db.ListRecentImages(r.Context(), id.Email, pageSize+1, offset)
 	if err != nil {
-		slog.Error("list images", "user", claims.UserID, "err", err)
+		slog.Error("list images", "email", id.Email, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -57,7 +55,7 @@ func (h *Handlers) Home(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderTemplate(w, "home.html", homeData{
-		User:     claims,
+		pageData: h.newPageData(r),
 		Images:   imgs,
 		HomeCols: h.cfg.Home.Cols,
 		Page:     page,

@@ -30,43 +30,92 @@ $EDITOR config.toml
 
 ### Required fields
 
-| Field | Description |
-|---|---|
-| `server.domain` | Public HTTPS base URL, no trailing slash (e.g. `https://screenshots.example.com`) |
-| `server.storage_path` | Directory where PNGs and thumbnails are stored |
-| `session.secret` | Random string ≥ 32 characters used to sign JWT cookies — generate with `openssl rand -hex 32` |
-| `database.backend` | `sqlite` or `postgres` |
-| `database.dsn` | Path to `.sqlite` file, or a PostgreSQL connection string |
-| `auth.backend` | `oidc` or `tailscale` |
+- **`canonical_address`** — Public base URL including scheme, no trailing slash
+  (e.g. `https://screenshots.example.com`). Required when OIDC is enabled.
+  When set, any request arriving on a different scheme or host is redirected
+  here with a 301, preserving path and query.
+- **`server.storage_path`** — Directory where PNGs and thumbnails are stored.
+- **`db.driver`** — `sqlite` or `postgres`.
+- **`db.dsn`** — Path to `.sqlite` file, or a PostgreSQL connection string.
+- **At least one authentication backend** — see below.
+- **`jwt_secret`** — Required when OIDC is enabled. Random string ≥ 32 chars,
+  generate with `openssl rand -hex 32`. Can also be provided via
+  `jwt_secret_env_var`.
 
-### OIDC auth
+### Authentication backends
 
-Set `auth.backend = "oidc"` and fill in the `[auth.oidc]` section.
+Each backend is an independent middleware gated by its own `enabled` flag. At
+least one must be enabled; several can be active at once, in which case they
+run in a chain (Tailscale → ProxyAuth → OIDC → Anonymous) and the first one
+to produce an identity wins.
 
-Register the following **redirect URI** with your identity provider:
-
-```
-https://<your-domain>/auth/callback
-```
-
-The server uses the standard authorization-code flow with PKCE. Any
-spec-compliant OIDC provider works (Google, GitHub via Dex, Keycloak, …).
-
-### Tailscale auth
-
-Set `auth.backend = "tailscale"` and point your Tailscale serve/funnel config
-at the server. Identity is read from the `Tailscale-User-Login` and
-`Tailscale-User-Name` headers injected by the Tailscale proxy.
-
-For additional security, restrict header trust to specific source CIDRs:
+**Anonymous** — for development or trusted private instances. Treats every
+request as one shared user. Do not enable on the public internet.
 
 ```toml
-[auth.tailscale]
-proxy_ips = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]
+[anonymous]
+enabled = true
 ```
 
-Leave `proxy_ips` empty to trust all source addresses, which is safe when the
-server is not reachable from the public internet.
+**Tailscale** — identity is read from `Tailscale-User-Login` and
+`Tailscale-User-Name` headers injected by a trusted Tailscale proxy. Requires
+`trusted_proxy` to list the CIDRs the proxy connects from.
+
+```toml
+trusted_proxy = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]
+
+[tailscale]
+enabled = true
+```
+
+**Proxy auth** — identity is read from `Remote-*` headers injected by a
+trusted reverse proxy (Authelia, oauth2-proxy, …). Requires `trusted_proxy`.
+Header names are overridable.
+
+```toml
+trusted_proxy = ["10.0.0.0/8"]
+
+[proxy_auth]
+enabled = true
+# user_header   = "Remote-User"
+# email_header  = "Remote-Email"
+# name_header   = "Remote-Name"
+# groups_header = "Remote-Groups"
+```
+
+**OIDC** — the server acts as an OIDC Relying Party using the
+authorization-code flow with PKCE. Any spec-compliant provider works (Google,
+Keycloak, GitHub via Dex, …). Register this redirect URI with your IdP:
+
+```
+<canonical_address>/auth/callback
+```
+
+```toml
+canonical_address = "https://screenshots.example.com"
+jwt_secret        = "…32+ random chars…"
+
+[oidc]
+enabled       = true
+issuer        = "https://accounts.google.com"
+client_id     = "<your-client-id>"
+client_secret = "<your-client-secret>"
+# client_secret_env_var = "SCREENSHOTTER_OIDC_CLIENT_SECRET"
+# scopes       = ["openid", "email", "profile"]
+# groups_claim = "groups"
+```
+
+### Admins
+
+Users are granted admin privileges via:
+
+```toml
+admin_emails = ["alice@example.com"]
+admin_groups = ["screenshotter-admins"]
+```
+
+`admin_groups` matches against the OIDC groups claim or the configured proxy
+groups header.
 
 ### CORS / extension ID
 
@@ -75,9 +124,9 @@ server is not reachable from the public internet.
 extension_ids = ["abcdefghijklmnopqrstuvwxyz123456"]
 ```
 
-Replace the placeholder with the real Chrome extension ID. You can list
-multiple IDs (e.g. dev and production builds). The extension ID is shown at
-`chrome://extensions` after loading the extension.
+Replace the placeholder with the real Chrome extension ID. List multiple IDs
+for dev + production builds. The ID is shown at `chrome://extensions` after
+loading the extension.
 
 ## Running
 
@@ -85,14 +134,14 @@ multiple IDs (e.g. dev and production builds). The extension ID is shown at
 ./screenshotter -config /etc/screenshotter/config.toml
 ```
 
-The server listens on `server.listen` (default `:8080`) and expects the reverse
-proxy to handle TLS.
+The server listens on `listen_addr` (default `0.0.0.0:8080`) and expects the
+reverse proxy to handle TLS.
 
 ### Reverse proxy
 
-The server must be served over HTTPS because the session cookie is set with
-`Secure`. Configure your proxy to forward to `127.0.0.1:8080` (or whatever
-`server.listen` is set to).
+The session cookie is set with `Secure`, so the server must be served over
+HTTPS in production. Configure your proxy to forward to `127.0.0.1:8080` (or
+whatever `listen_addr` is set to).
 
 **Caddy example** (`/etc/caddy/Caddyfile`):
 
@@ -123,6 +172,8 @@ server {
 }
 ```
 
+Add the proxy's CIDR to `trusted_proxy` so forwarded headers are honoured.
+
 ### systemd service
 
 ```ini
@@ -147,6 +198,18 @@ systemctl daemon-reload
 systemctl enable --now screenshotter
 ```
 
+## Unauthenticated routes & rate limiting
+
+Two routes are reachable without authentication:
+
+- `GET /{id}` — the HTML image viewer
+- `GET /{id}.png` — the raw PNG
+
+Both apply a per-IP sliding-window rate limit (`ratelimit.requests_per_second`
+/ `requests_per_minute`) that also counts 404 responses, preventing ID
+enumeration scraping. All other routes (upload, delete, annotate, thumbnails,
+the home page when logged in) require a valid identity.
+
 ## Storage layout
 
 ```
@@ -162,8 +225,19 @@ automatically on startup.
 
 | Setting | Default |
 |---|---|
-| `server.listen` | `:8080` |
+| `listen_addr` | `0.0.0.0:8080` |
+| `title` | `Screenshotter` |
+| `log_level` | `info` |
 | `server.max_upload_mb` | `4` |
 | `id.length` | `8` |
 | `session.ttl` | `720h` (30 days) |
-| `auth.oidc.scopes` | `["openid", "email", "profile"]` |
+| `home.cols` | `5` |
+| `home.page_size` | `20` |
+| `ratelimit.requests_per_second` | `5` |
+| `ratelimit.requests_per_minute` | `50` |
+| `oidc.scopes` | `["openid", "email", "profile"]` |
+| `oidc.groups_claim` | `groups` |
+| `proxy_auth.user_header` | `Remote-User` |
+| `proxy_auth.email_header` | `Remote-Email` |
+| `proxy_auth.name_header` | `Remote-Name` |
+| `proxy_auth.groups_header` | `Remote-Groups` |

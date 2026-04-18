@@ -111,38 +111,49 @@ func (d *DB) Close() error { return d.sql.Close() }
 
 // --- User queries ---
 
+// User is the stored representation of an authenticated user. The id column
+// now holds the user's email address (the canonical identifier used
+// throughout the application); the legacy email column is kept in sync.
 type User struct {
-	ID          string
-	DisplayName string
 	Email       string
+	DisplayName string
+	AvatarURL   string
 	CreatedAt   time.Time
 }
 
-// UpsertUser inserts or updates a user's display name and email.
-func (d *DB) UpsertUser(ctx context.Context, id, displayName, email string) error {
+// UpsertUser inserts or updates a user's display name and avatar URL keyed by
+// email. The email is stored both as the primary key (id column) and in the
+// email column.
+func (d *DB) UpsertUser(ctx context.Context, email, displayName, avatarURL string) error {
 	var query string
 	switch d.backend {
 	case "postgres":
 		query = `
-			INSERT INTO users (id, display_name, email) VALUES ($1, $2, $3)
-			ON CONFLICT(id) DO UPDATE SET display_name = EXCLUDED.display_name, email = EXCLUDED.email`
+			INSERT INTO users (id, display_name, email, avatar_url) VALUES ($1, $2, $3, $4)
+			ON CONFLICT(id) DO UPDATE SET
+				display_name = EXCLUDED.display_name,
+				email        = EXCLUDED.email,
+				avatar_url   = EXCLUDED.avatar_url`
 	default:
 		query = `
-			INSERT INTO users (id, display_name, email) VALUES (?, ?, ?)
-			ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name, email = excluded.email`
+			INSERT INTO users (id, display_name, email, avatar_url) VALUES (?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				display_name = excluded.display_name,
+				email        = excluded.email,
+				avatar_url   = excluded.avatar_url`
 	}
-	if _, err := d.sql.ExecContext(ctx, query, id, displayName, email); err != nil {
+	if _, err := d.sql.ExecContext(ctx, query, email, displayName, email, avatarURL); err != nil {
 		return fmt.Errorf("upsert user: %w", err)
 	}
 	return nil
 }
 
-// GetUser returns a user by ID, or (nil, nil) if not found.
-func (d *DB) GetUser(ctx context.Context, id string) (*User, error) {
+// GetUser returns a user by email, or (nil, nil) if not found.
+func (d *DB) GetUser(ctx context.Context, email string) (*User, error) {
 	u := &User{}
 	err := d.sql.QueryRowContext(ctx,
-		d.q(`SELECT id, display_name, email, created_at FROM users WHERE id = ?`), id).
-		Scan(&u.ID, &u.DisplayName, &u.Email, &u.CreatedAt)
+		d.q(`SELECT id, display_name, avatar_url, created_at FROM users WHERE id = ?`), email).
+		Scan(&u.Email, &u.DisplayName, &u.AvatarURL, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

@@ -116,25 +116,25 @@ func TestUpsertUser_InsertAndRetrieve(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			if err := b.db.UpsertUser(ctx, "u1", "Alice", "alice@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "alice@example.com", "Alice", "https://ex/a.png"); err != nil {
 				t.Fatalf("UpsertUser: %v", err)
 			}
 
-			u, err := b.db.GetUser(ctx, "u1")
+			u, err := b.db.GetUser(ctx, "alice@example.com")
 			if err != nil {
 				t.Fatalf("GetUser: %v", err)
 			}
 			if u == nil {
 				t.Fatal("expected user, got nil")
 			}
-			if u.ID != "u1" {
-				t.Errorf("ID: got %q, want %q", u.ID, "u1")
+			if u.Email != "alice@example.com" {
+				t.Errorf("Email: got %q, want %q", u.Email, "alice@example.com")
 			}
 			if u.DisplayName != "Alice" {
 				t.Errorf("DisplayName: got %q, want %q", u.DisplayName, "Alice")
 			}
-			if u.Email != "alice@example.com" {
-				t.Errorf("Email: got %q, want %q", u.Email, "alice@example.com")
+			if u.AvatarURL != "https://ex/a.png" {
+				t.Errorf("AvatarURL: got %q, want %q", u.AvatarURL, "https://ex/a.png")
 			}
 		})
 	}
@@ -145,19 +145,22 @@ func TestUpsertUser_UpdatesExistingUser(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			if err := b.db.UpsertUser(ctx, "u2", "Bob", "bob@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "bob@example.com", "Bob", ""); err != nil {
 				t.Fatalf("UpsertUser (insert): %v", err)
 			}
-			if err := b.db.UpsertUser(ctx, "u2", "Robert", "robert@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "bob@example.com", "Robert", "https://ex/b.png"); err != nil {
 				t.Fatalf("UpsertUser (update): %v", err)
 			}
 
-			u, err := b.db.GetUser(ctx, "u2")
+			u, err := b.db.GetUser(ctx, "bob@example.com")
 			if err != nil {
 				t.Fatalf("GetUser: %v", err)
 			}
 			if u.DisplayName != "Robert" {
 				t.Errorf("DisplayName after update: got %q, want %q", u.DisplayName, "Robert")
+			}
+			if u.AvatarURL != "https://ex/b.png" {
+				t.Errorf("AvatarURL after update: got %q, want %q", u.AvatarURL, "https://ex/b.png")
 			}
 		})
 	}
@@ -182,7 +185,7 @@ func TestInsertImage_AndGetImage(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			if err := b.db.UpsertUser(ctx, "owner1", "Owner", "owner@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "owner1", "Owner", ""); err != nil {
 				t.Fatalf("UpsertUser: %v", err)
 			}
 
@@ -246,7 +249,7 @@ func TestDeleteImage_OwnerCanDelete(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			if err := b.db.UpsertUser(ctx, "owner2", "Owner2", "o2@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "owner2", "Owner2", ""); err != nil {
 				t.Fatalf("UpsertUser: %v", err)
 			}
 			if err := b.db.InsertImage(ctx, Image{ID: "del1", OwnerID: "owner2", SourceURL: strPtr("u"), FilePath: "del1.png"}); err != nil {
@@ -277,10 +280,10 @@ func TestDeleteImage_NonOwnerCannotDelete(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			if err := b.db.UpsertUser(ctx, "owner3", "Owner3", "o3@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "owner3", "Owner3", ""); err != nil {
 				t.Fatalf("UpsertUser owner3: %v", err)
 			}
-			if err := b.db.UpsertUser(ctx, "other3", "Other3", "other3@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "other3", "Other3", ""); err != nil {
 				t.Fatalf("UpsertUser other3: %v", err)
 			}
 			if err := b.db.InsertImage(ctx, Image{ID: "del2", OwnerID: "owner3", SourceURL: strPtr("u"), FilePath: "del2.png"}); err != nil {
@@ -317,7 +320,7 @@ func TestListRecentImages_OrderedNewestFirst(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			if err := b.db.UpsertUser(ctx, "lister", "Lister", "lister@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "lister", "Lister", ""); err != nil {
 				t.Fatalf("UpsertUser: %v", err)
 			}
 
@@ -363,7 +366,7 @@ func TestListRecentImages_LimitRespected(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			if err := b.db.UpsertUser(ctx, "limiter", "Limiter", "limiter@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "limiter", "Limiter", ""); err != nil {
 				t.Fatalf("UpsertUser: %v", err)
 			}
 			for i := 0; i < 5; i++ {
@@ -389,10 +392,10 @@ func TestListRecentImages_OtherUsersNotReturned(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			if err := b.db.UpsertUser(ctx, "user-x", "X", "x@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "user-x", "X", ""); err != nil {
 				t.Fatalf("UpsertUser user-x: %v", err)
 			}
-			if err := b.db.UpsertUser(ctx, "user-y", "Y", "y@example.com"); err != nil {
+			if err := b.db.UpsertUser(ctx, "user-y", "Y", ""); err != nil {
 				t.Fatalf("UpsertUser user-y: %v", err)
 			}
 			if err := b.db.InsertImage(ctx, Image{ID: "ximg", OwnerID: "user-x", SourceURL: strPtr("u"), FilePath: "ximg.png"}); err != nil {

@@ -18,9 +18,13 @@ const idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 // Upload handles POST /upload: saves the PNG, records it in the DB, and
 // returns a redirect_url for the extension to navigate to.
 func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
+	identity := auth.FromContext(r.Context())
+	if identity == nil {
+		writeJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 
-	maxBytes := h.cfg.Server.MaxUploadMB << 20 // MB to bytes
+	maxBytes := h.cfg.Server.MaxUploadMB << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 
 	if err := r.ParseMultipartForm(maxBytes); err != nil {
@@ -59,17 +63,16 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure the user exists in the DB (needed for Tailscale backend).
-	if err := h.upsertUser(r.Context(), claims); err != nil {
+	if err := h.upsertUser(r.Context(), identity); err != nil {
 		h.storage.Delete(id) //nolint:errcheck
-		slog.Error("upsert user on upload", "user", claims.UserID, "err", err)
+		slog.Error("upsert user on upload", "email", identity.Email, "err", err)
 		writeJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	img := db.Image{
 		ID:        id,
-		OwnerID:   claims.UserID,
+		OwnerID:   identity.Email,
 		SourceURL: sourceURL,
 		FilePath:  filePath,
 	}
@@ -80,7 +83,7 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectURL := h.cfg.Server.Domain + "/" + id
+	redirectURL := h.cfg.CanonicalAddress + "/" + id
 	writeJSON(w, http.StatusOK, map[string]string{"redirect_url": redirectURL})
 }
 

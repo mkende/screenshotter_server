@@ -10,15 +10,17 @@ import (
 )
 
 type viewData struct {
-	User      *auth.Claims
-	Image     *db.Image
-	IsOwner   bool
+	pageData
+	Image      *db.Image
+	IsOwner    bool
 	CurrentURL string
 }
 
-// View renders the HTML view page for a single image.
+// View renders the HTML view page for a single image. Accessible to
+// unauthenticated users (view is public); only the owner sees edit/delete
+// controls.
 func (h *Handlers) View(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
+	identity := auth.FromContext(r.Context())
 	id := chi.URLParam(r, "id")
 
 	img, err := h.db.GetImage(r.Context(), id)
@@ -31,10 +33,11 @@ func (h *Handlers) View(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	isOwner := identity != nil && img.OwnerID == identity.Email
 	h.renderTemplate(w, "view.html", viewData{
-		User:       claims,
+		pageData:   h.newPageData(r),
 		Image:      img,
-		IsOwner:    img.OwnerID == claims.UserID,
-		CurrentURL: h.cfg.Server.Domain + "/" + id,
+		IsOwner:    isOwner,
+		CurrentURL: h.cfg.CanonicalAddress + "/" + id,
 	})
 }

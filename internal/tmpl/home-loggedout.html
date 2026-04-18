@@ -1,13 +1,15 @@
 {{template "base" .}}
 
-{{define "title"}}Screenshotter{{end}}
+{{define "title"}}{{.Title}}{{end}}
 
 {{define "content"}}
 <section class="hero is-medium is-light">
   <div class="hero-body">
-    <p class="title">Screenshotter</p>
+    <p class="title">{{.Title}}</p>
     <p class="subtitle">Capture, crop, and share browser screenshots — privately.</p>
+    {{if .OIDCEnabled}}
     <a class="button is-link is-medium" href="/auth/login">Log in to view your screenshots</a>
+    {{end}}
   </div>
 </section>
 {{end}}

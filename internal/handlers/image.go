@@ -9,16 +9,18 @@ import (
 	"github.com/mkende/screenshotter/server/internal/auth"
 )
 
-// ServeImage serves the raw PNG for GET /{id}.png.
+// ServeImage serves the raw PNG for GET /{id}.png. Accessible to
+// unauthenticated users; rate-limited at the router level to prevent
+// enumeration.
 func (h *Handlers) ServeImage(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	h.serveFile(w, r, id, h.storage.ImagePath(id))
 }
 
 // ServeThumb serves the thumbnail PNG for GET /thumb/{id}.png.
-// Only the owner of the image may fetch its thumbnail.
+// Authentication is required and only the owner may fetch the thumbnail.
 func (h *Handlers) ServeThumb(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
+	identity := auth.FromContext(r.Context())
 	id := chi.URLParam(r, "id")
 
 	img, err := h.db.GetImage(r.Context(), id)
@@ -31,7 +33,7 @@ func (h *Handlers) ServeThumb(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if img.OwnerID != claims.UserID {
+	if identity == nil || img.OwnerID != identity.Email {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -40,7 +42,6 @@ func (h *Handlers) ServeThumb(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) serveFile(w http.ResponseWriter, r *http.Request, id, path string) {
-	// Verify the image record exists in the DB before serving the file.
 	img, err := h.db.GetImage(r.Context(), id)
 	if err != nil {
 		slog.Error("get image record for file serve", "id", id, "err", err)

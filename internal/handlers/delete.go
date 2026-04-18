@@ -10,10 +10,13 @@ import (
 
 // Delete handles DELETE /{id}: removes the image if the caller is its owner.
 func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
+	identity := auth.FromContext(r.Context())
+	if identity == nil {
+		writeJSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
 	id := chi.URLParam(r, "id")
 
-	// Verify the image exists and is owned by the caller.
 	img, err := h.db.GetImage(r.Context(), id)
 	if err != nil {
 		slog.Error("get image for delete", "id", id, "err", err)
@@ -24,14 +27,14 @@ func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "image not found")
 		return
 	}
-	if img.OwnerID != claims.UserID {
+	if img.OwnerID != identity.Email {
 		writeJSONError(w, http.StatusForbidden, "not the owner of this image")
 		return
 	}
 
 	// Delete from DB first; if the file removal fails the record is still gone,
 	// which is acceptable — the orphaned file can be cleaned up separately.
-	deleted, err := h.db.DeleteImage(r.Context(), id, claims.UserID)
+	deleted, err := h.db.DeleteImage(r.Context(), id, identity.Email)
 	if err != nil {
 		slog.Error("delete image record", "id", id, "err", err)
 		writeJSONError(w, http.StatusInternalServerError, "internal error")
@@ -42,7 +45,6 @@ func (h *Handlers) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.storage.Delete(id); err != nil {
-		// Log but do not fail — the DB record is already gone.
 		slog.Error("delete image file", "id", id, "err", err)
 	}
 	writeJSON(w, http.StatusOK, map[string]string{})

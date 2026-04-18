@@ -6,42 +6,50 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/mkende/screenshotter/server/internal/config"
 )
 
-const cookieName = "session"
+// sessionCookieName is the JWT session cookie name.
+const sessionCookieName = "screenshotter_session"
 
-// Claims are the custom JWT claims stored in the session cookie.
-type Claims struct {
-	UserID      string `json:"uid"`
-	DisplayName string `json:"name"`
-	Email       string `json:"email"`
+// sessionClaims is the JWT payload stored in the session cookie. It mirrors
+// Identity so the browser can be re-authenticated from the cookie alone.
+type sessionClaims struct {
 	jwt.RegisteredClaims
+	Email       string   `json:"email"`
+	DisplayName string   `json:"name"`
+	AvatarURL   string   `json:"picture,omitempty"`
+	Groups      []string `json:"groups,omitempty"`
 }
 
-// issueSessionCookie signs a JWT for the user and sets it as an HttpOnly cookie.
-func (s *Service) issueSessionCookie(w http.ResponseWriter, userID, displayName, email string) error {
+// issueSessionCookie signs a JWT for id and sets it as an HttpOnly cookie.
+// SameSite=None is required so the Chrome extension can include the cookie
+// when POSTing to /upload from chrome-extension:// origins.
+func issueSessionCookie(w http.ResponseWriter, cfg *config.Config, id *Identity) error {
 	now := time.Now()
-	claims := Claims{
-		UserID:      userID,
-		DisplayName: displayName,
-		Email:       email,
+	ttl := cfg.Session.TTL.Duration
+	claims := sessionClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(s.cfg.Session.TTL.Duration)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 		},
+		Email:       id.Email,
+		DisplayName: id.DisplayName,
+		AvatarURL:   id.AvatarURL,
+		Groups:      id.Groups,
 	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.signingKey)
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(cfg.JWTSecret))
 	if err != nil {
 		return fmt.Errorf("sign jwt: %w", err)
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:     cookieName,
+		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteNoneMode,
-		MaxAge:   int(s.cfg.Session.TTL.Duration.Seconds()),
+		MaxAge:   int(ttl.Seconds()),
 	})
 	return nil
 }
@@ -49,7 +57,7 @@ func (s *Service) issueSessionCookie(w http.ResponseWriter, userID, displayName,
 // clearSessionCookie removes the session cookie.
 func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     cookieName,
+		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -59,25 +67,30 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// parseSessionCookie validates the session cookie and returns its claims.
+// parseSessionCookie validates the session cookie and returns an Identity.
 // Returns nil if the cookie is absent or invalid.
-func (s *Service) parseSessionCookie(r *http.Request) *Claims {
-	cookie, err := r.Cookie(cookieName)
+func parseSessionCookie(r *http.Request, cfg *config.Config) *Identity {
+	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
 		return nil
 	}
-	token, err := jwt.ParseWithClaims(cookie.Value, &Claims{}, func(t *jwt.Token) (any, error) {
+	var claims sessionClaims
+	token, err := jwt.ParseWithClaims(cookie.Value, &claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
-		return s.signingKey, nil
+		return []byte(cfg.JWTSecret), nil
 	})
 	if err != nil || !token.Valid {
 		return nil
 	}
-	claims, ok := token.Claims.(*Claims)
-	if !ok {
-		return nil
+	id := &Identity{
+		Email:       claims.Email,
+		DisplayName: claims.DisplayName,
+		AvatarURL:   claims.AvatarURL,
+		Groups:      claims.Groups,
+		Source:      AuthSourceOIDC,
 	}
-	return claims
+	id.IsAdmin = isAdmin(cfg, id)
+	return id
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,12 +46,15 @@ func run(configPath string) error {
 		return err
 	}
 
+	logger := newLogger(cfg.LogLevel)
+	slog.SetDefault(logger)
+
 	tmpls, err := tmpl.Parse()
 	if err != nil {
 		return fmt.Errorf("parse templates: %w", err)
 	}
 
-	database, err := db.Open(cfg.Database.Backend, cfg.Database.DSN)
+	database, err := db.Open(cfg.DB.Driver, cfg.DB.DSN)
 	if err != nil {
 		return err
 	}
@@ -61,26 +65,36 @@ func run(configPath string) error {
 		return err
 	}
 
-	// OIDC provider discovery requires a network call; give it 30 s.
-	initCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	authSvc, err := auth.New(initCtx, cfg)
-	cancel()
-	if err != nil {
-		return err
+	h := handlers.New(cfg, database, stor, tmpls, tmpl.FontTTF)
+
+	var oidcHandler *auth.OIDCHandler
+	if cfg.OIDC.Enabled {
+		initCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		oidcHandler, err = auth.NewOIDCHandler(initCtx, cfg, database)
+		cancel()
+		if err != nil {
+			return err
+		}
 	}
 
-	h := handlers.New(cfg, database, stor, authSvc, tmpls, tmpl.FontTTF)
-	httpHandler := server.New(cfg, h, authSvc)
+	httpHandler := server.New(cfg, h, oidcHandler, logger)
 
 	srv := &http.Server{
-		Addr:         cfg.Server.Listen,
+		Addr:         cfg.ListenAddr,
 		Handler:      httpHandler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
-	slog.Info("starting server", "addr", cfg.Server.Listen, "domain", cfg.Server.Domain)
+	logger.Info("starting server",
+		"addr", cfg.ListenAddr,
+		"canonical_address", cfg.CanonicalAddress,
+		"oidc_enabled", cfg.OIDC.Enabled,
+		"tailscale_enabled", cfg.Tailscale.Enabled,
+		"proxy_auth_enabled", cfg.ProxyAuth.Enabled,
+		"anonymous_enabled", cfg.Anonymous.Enabled,
+	)
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
@@ -93,7 +107,7 @@ func run(configPath string) error {
 			return err
 		}
 	case <-quit:
-		slog.Info("shutting down")
+		logger.Info("shutting down")
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer shutdownCancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -101,4 +115,20 @@ func run(configPath string) error {
 		}
 	}
 	return nil
+}
+
+// newLogger returns a structured logger configured at the given level.
+func newLogger(level string) *slog.Logger {
+	var lvl slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}))
 }

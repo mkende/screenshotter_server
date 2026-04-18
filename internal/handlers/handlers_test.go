@@ -21,8 +21,6 @@ import (
 	"github.com/mkende/screenshotter/server/internal/storage"
 )
 
-// ---- helpers ---------------------------------------------------------------
-
 // makePNG returns valid in-memory PNG bytes.
 func makePNG(t *testing.T, w, h int) []byte {
 	t.Helper()
@@ -50,11 +48,11 @@ func openTestDB(t *testing.T) *db.DB {
 	return d
 }
 
-// minimalTemplates returns a map with simple stub templates that satisfy
-// the handlers' renderTemplate calls without needing embedded FS.
+// minimalTemplates returns a map with simple stub templates that satisfy the
+// handlers' renderTemplate calls without needing the embedded FS.
 func minimalTemplates() map[string]*template.Template {
 	const stub = `{{define "base"}}OK{{end}}`
-	pages := []string{"home.html", "view.html"}
+	pages := []string{"home.html", "home-loggedout.html", "view.html", "annotate.html"}
 	m := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		m[p] = template.Must(template.New("").Parse(stub))
@@ -73,15 +71,16 @@ func newHandlers(t *testing.T) (*Handlers, *db.DB, *storage.Storage) {
 		t.Fatalf("storage.New: %v", err)
 	}
 
-	cfg := &config.Config{}
-	cfg.Server.Domain = "https://example.com"
+	cfg := &config.Config{
+		CanonicalAddress: "https://example.com",
+		Title:            "Screenshotter",
+	}
 	cfg.Server.MaxUploadMB = 4
 	cfg.ID.Length = 8
 
-	h := New(cfg, database, stor, nil /* auth not needed for handler tests */, minimalTemplates(), nil /* font not needed for handler tests */)
+	h := New(cfg, database, stor, minimalTemplates(), nil)
 	return h, database, stor
 }
-
 
 // buildUploadRequest builds a multipart/form-data request for the Upload handler.
 func buildUploadRequest(t *testing.T, imageData []byte, sourceURL string) *http.Request {
@@ -110,44 +109,30 @@ func buildUploadRequest(t *testing.T, imageData []byte, sourceURL string) *http.
 	return req
 }
 
-// claimsForUser returns a minimal Claims for a given userID.
-func claimsForUser(userID string) *auth.Claims {
-	return &auth.Claims{
-		UserID:      userID,
-		DisplayName: userID,
-		Email:       userID + "@example.com",
+// identityFor returns an Identity matching the given email.
+func identityFor(email string) *auth.Identity {
+	return &auth.Identity{
+		Email:       email,
+		DisplayName: email,
+		Source:      auth.AuthSourceTailscale,
 	}
 }
 
-// authService builds a real auth.Service using a Tailscale backend with no
-// CIDR restriction so it trusts any remote address that provides the right
-// headers.
-func authService(t *testing.T) *auth.Service {
+// executeAs drives handler with req after injecting an Identity into the
+// request context. Used to exercise handlers in isolation from the real auth
+// middleware chain.
+func executeAs(t *testing.T, h http.HandlerFunc, req *http.Request, email string) *httptest.ResponseRecorder {
 	t.Helper()
-	cfg := &config.Config{}
-	cfg.Server.Domain = "https://example.com"
-	cfg.Session.Secret = "a-secret-that-is-at-least-32-characters-long"
-	cfg.Auth.Backend = "tailscale"
-	// No proxy_ips → trust everyone.
-	svc, err := auth.New(context.Background(), cfg)
-	if err != nil {
-		t.Fatalf("auth.New: %v", err)
-	}
-	return svc
-}
-
-// executeWithUser runs handler h with claims for userID already in context,
-// by routing through a Tailscale auth middleware injecting the right headers.
-func executeWithUser(t *testing.T, h http.HandlerFunc, req *http.Request, userID string) *httptest.ResponseRecorder {
-	t.Helper()
-	req.Header.Set("Tailscale-User-Login", userID)
-	req.Header.Set("Tailscale-User-Name", userID)
-	// Tailscale backend reads RemoteAddr; no CIDR restriction so any addr works.
-	req.RemoteAddr = "127.0.0.1:1234"
-
-	svc := authService(t)
+	req = req.WithContext(auth.WithIdentity(req.Context(), identityFor(email)))
 	rr := httptest.NewRecorder()
-	svc.Middleware(h).ServeHTTP(rr, req)
+	h(rr, req)
+	return rr
+}
+
+// executeAnonymous drives handler without any authenticated identity.
+func executeAnonymous(h http.HandlerFunc, req *http.Request) *httptest.ResponseRecorder {
+	rr := httptest.NewRecorder()
+	h(rr, req)
 	return rr
 }
 
@@ -165,7 +150,6 @@ func chiRequest(req *http.Request, params map[string]string) *http.Request {
 func TestUpload_MissingImageField_Returns400(t *testing.T) {
 	h, _, _ := newHandlers(t)
 
-	// Build a request with only source_url, no image field.
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	mw.WriteField("source_url", "https://example.com") //nolint:errcheck
@@ -174,7 +158,7 @@ func TestUpload_MissingImageField_Returns400(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
-	rr := executeWithUser(t, h.Upload, req, "alice")
+	rr := executeAs(t, h.Upload, req, "alice@example.com")
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d; body: %s", rr.Code, rr.Body.String())
 	}
@@ -184,7 +168,7 @@ func TestUpload_NonPNGBytes_Returns400(t *testing.T) {
 	h, _, _ := newHandlers(t)
 
 	req := buildUploadRequest(t, []byte("this is not a png"), "https://example.com")
-	rr := executeWithUser(t, h.Upload, req, "alice")
+	rr := executeAs(t, h.Upload, req, "alice@example.com")
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for non-PNG, got %d; body: %s", rr.Code, rr.Body.String())
 	}
@@ -195,23 +179,20 @@ func TestUpload_NonPNGBytes_Returns400(t *testing.T) {
 
 func TestUpload_OversizedBody_Returns413(t *testing.T) {
 	h, _, _ := newHandlers(t)
-	// MaxUploadMB=4, so 5MB body should be rejected.
 	bigData := make([]byte, 5<<20)
-	// Put a fake PNG magic at the start to get past the earliest check,
-	// but the body is so large it hits the MaxBytesReader limit.
 	copy(bigData, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, _ := mw.CreateFormFile("image", "big.png")
-	fw.Write(bigData) //nolint:errcheck
+	fw.Write(bigData)                                  //nolint:errcheck
 	mw.WriteField("source_url", "https://example.com") //nolint:errcheck
 	mw.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
-	rr := executeWithUser(t, h.Upload, req, "alice")
+	rr := executeAs(t, h.Upload, req, "alice@example.com")
 	if rr.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("expected 413, got %d; body: %s", rr.Code, rr.Body.String())
 	}
@@ -222,7 +203,7 @@ func TestUpload_ValidPNG_Returns200WithRedirectURL(t *testing.T) {
 	pngData := makePNG(t, 100, 100)
 
 	req := buildUploadRequest(t, pngData, "https://example.com/page")
-	rr := executeWithUser(t, h.Upload, req, "alice")
+	rr := executeAs(t, h.Upload, req, "alice@example.com")
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
@@ -241,32 +222,21 @@ func TestUpload_ValidPNG_Returns200WithRedirectURL(t *testing.T) {
 	}
 }
 
-func TestUpload_MissingSourceURL_Returns200(t *testing.T) {
+func TestUpload_NoIdentity_Returns401(t *testing.T) {
 	h, _, _ := newHandlers(t)
-	pngData := makePNG(t, 10, 10)
-
-	// source_url is optional; omitting it should still succeed.
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	fw, _ := mw.CreateFormFile("image", "shot.png")
-	fw.Write(pngData) //nolint:errcheck
-	mw.Close()
-
-	req := httptest.NewRequest(http.MethodPost, "/upload", &body)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-
-	rr := executeWithUser(t, h.Upload, req, "alice")
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for missing source_url, got %d; body: %s", rr.Code, rr.Body.String())
+	req := buildUploadRequest(t, makePNG(t, 10, 10), "")
+	rr := executeAnonymous(h.Upload, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without identity, got %d", rr.Code)
 	}
 }
 
 // ---- Delete tests ----------------------------------------------------------
 
-func setupImageForUser(t *testing.T, database *db.DB, stor *storage.Storage, imageID, userID string) {
+func setupImageForUser(t *testing.T, database *db.DB, stor *storage.Storage, imageID, email string) {
 	t.Helper()
 	ctx := context.Background()
-	if err := database.UpsertUser(ctx, userID, userID, userID+"@example.com"); err != nil {
+	if err := database.UpsertUser(ctx, email, email, ""); err != nil {
 		t.Fatalf("UpsertUser: %v", err)
 	}
 	pngData := makePNG(t, 20, 20)
@@ -277,7 +247,7 @@ func setupImageForUser(t *testing.T, database *db.DB, stor *storage.Storage, ima
 	u := "https://example.com"
 	if err := database.InsertImage(ctx, db.Image{
 		ID:        imageID,
-		OwnerID:   userID,
+		OwnerID:   email,
 		SourceURL: &u,
 		FilePath:  filePath,
 	}); err != nil {
@@ -287,12 +257,12 @@ func setupImageForUser(t *testing.T, database *db.DB, stor *storage.Storage, ima
 
 func TestDelete_NotOwner_Returns403(t *testing.T) {
 	h, database, stor := newHandlers(t)
-	setupImageForUser(t, database, stor, "img-del1", "owner-user")
+	setupImageForUser(t, database, stor, "img-del1", "owner@example.com")
 
 	req := httptest.NewRequest(http.MethodDelete, "/img-del1", nil)
 	req = chiRequest(req, map[string]string{"id": "img-del1"})
 
-	rr := executeWithUser(t, h.Delete, req, "other-user")
+	rr := executeAs(t, h.Delete, req, "other@example.com")
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("expected 403, got %d; body: %s", rr.Code, rr.Body.String())
 	}
@@ -304,7 +274,7 @@ func TestDelete_NotFound_Returns404(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/nonexistent", nil)
 	req = chiRequest(req, map[string]string{"id": "nonexistent"})
 
-	rr := executeWithUser(t, h.Delete, req, "any-user")
+	rr := executeAs(t, h.Delete, req, "any@example.com")
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d; body: %s", rr.Code, rr.Body.String())
 	}
@@ -312,17 +282,16 @@ func TestDelete_NotFound_Returns404(t *testing.T) {
 
 func TestDelete_Owner_Returns200AndRemovesFiles(t *testing.T) {
 	h, database, stor := newHandlers(t)
-	setupImageForUser(t, database, stor, "img-del2", "the-owner")
+	setupImageForUser(t, database, stor, "img-del2", "owner@example.com")
 
 	req := httptest.NewRequest(http.MethodDelete, "/img-del2", nil)
 	req = chiRequest(req, map[string]string{"id": "img-del2"})
 
-	rr := executeWithUser(t, h.Delete, req, "the-owner")
+	rr := executeAs(t, h.Delete, req, "owner@example.com")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 
-	// Confirm image record is gone from DB.
 	img, err := database.GetImage(context.Background(), "img-del2")
 	if err != nil {
 		t.Fatalf("GetImage: %v", err)
@@ -340,7 +309,7 @@ func TestView_UnknownID_Returns404(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/unknown", nil)
 	req = chiRequest(req, map[string]string{"id": "unknown"})
 
-	rr := executeWithUser(t, h.View, req, "any-user")
+	rr := executeAs(t, h.View, req, "any@example.com")
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rr.Code)
 	}
@@ -348,14 +317,27 @@ func TestView_UnknownID_Returns404(t *testing.T) {
 
 func TestView_KnownID_Returns200(t *testing.T) {
 	h, database, stor := newHandlers(t)
-	setupImageForUser(t, database, stor, "img-view1", "view-owner")
+	setupImageForUser(t, database, stor, "img-view1", "owner@example.com")
 
 	req := httptest.NewRequest(http.MethodGet, "/img-view1", nil)
 	req = chiRequest(req, map[string]string{"id": "img-view1"})
 
-	rr := executeWithUser(t, h.View, req, "view-owner")
+	rr := executeAs(t, h.View, req, "owner@example.com")
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestView_UnauthenticatedAllowed(t *testing.T) {
+	h, database, stor := newHandlers(t)
+	setupImageForUser(t, database, stor, "img-view2", "owner@example.com")
+
+	req := httptest.NewRequest(http.MethodGet, "/img-view2", nil)
+	req = chiRequest(req, map[string]string{"id": "img-view2"})
+
+	rr := executeAnonymous(h.View, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for anonymous viewer, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -363,12 +345,11 @@ func TestView_KnownID_Returns200(t *testing.T) {
 
 func TestHome_Returns200AndListsImages(t *testing.T) {
 	h, database, stor := newHandlers(t)
-	// Pre-create some images for the user.
-	setupImageForUser(t, database, stor, "home-img1", "home-user")
-	setupImageForUser(t, database, stor, "home-img2", "home-user")
+	setupImageForUser(t, database, stor, "home-img1", "home@example.com")
+	setupImageForUser(t, database, stor, "home-img2", "home@example.com")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rr := executeWithUser(t, h.Home, req, "home-user")
+	rr := executeAs(t, h.Home, req, "home@example.com")
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
@@ -377,9 +358,17 @@ func TestHome_Returns200AndListsImages(t *testing.T) {
 func TestHome_NewUser_Returns200(t *testing.T) {
 	h, _, _ := newHandlers(t)
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	// Brand-new user: Home should upsert them and return 200 with no images.
-	rr := executeWithUser(t, h.Home, req, "brand-new-user")
+	rr := executeAs(t, h.Home, req, "brand-new@example.com")
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200 for new user, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHome_LoggedOut_Returns200(t *testing.T) {
+	h, _, _ := newHandlers(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := executeAnonymous(h.Home, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for logged-out home, got %d", rr.Code)
 	}
 }
