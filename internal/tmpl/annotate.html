@@ -101,12 +101,6 @@
         linear-gradient(-45deg, transparent 75%, #bbb 75%);
       background-size: 20px 20px;
       background-position: 0 0, 0 10px, 10px -10px, -10px 0;
-      padding: 24px;
-      box-sizing: border-box;
-    }
-    /* drop-shadow on the canvas so it pops from the checkerboard */
-    #canvas-area .canvas-container {
-      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
     }
   </style>
 </head>
@@ -167,10 +161,6 @@
     <button class="tool-btn" onclick="undo()" title="Undo (Ctrl+Z)">
       <i class="fa fa-rotate-left"></i>
     </button>
-    <!-- Expand canvas -->
-    <button class="tool-btn" onclick="expandCanvas()" title="Add space around image">
-      <i class="fa fa-expand"></i>
-    </button>
 
     <!-- Right-side actions -->
     <div id="toolbar-actions">
@@ -198,7 +188,17 @@
   const IMAGE_ID = '{{.Image.ID}}';
   const FONT_NAME = 'ScreenshotterAnnotation';
   const FONT_URL = '/static/font.ttf';
-  const EXPAND_PX = 150;
+
+  // ── Cookie helpers ────────────────────────────────────
+  function getCookie(name) {
+    var match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function setCookie(name, value) {
+    var expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+    document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Lax';
+  }
 
   // ── State ────────────────────────────────────────────
   let currentTool = 'select';
@@ -217,39 +217,36 @@
     selection: true,
   });
 
+  function initCanvas(img) {
+    var area = document.getElementById('canvas-area');
+    var canvasW = Math.max(area.clientWidth, img.width);
+    var canvasH = Math.max(area.clientHeight, img.height);
+    img.set({
+      left: Math.floor((canvasW - img.width) / 2),
+      top: Math.floor((canvasH - img.height) / 2),
+      selectable: false, evented: false,
+      hasControls: false,
+      lockMovementX: true, lockMovementY: true,
+      isBackground: true,
+    });
+    canvas.setWidth(canvasW);
+    canvas.setHeight(canvasH);
+    canvas.add(img);
+    canvas.renderAll();
+    pushHistory();
+  }
+
   // Load font then image
   const fontFace = new FontFace(FONT_NAME, 'url(' + FONT_URL + ')');
   document.fonts.add(fontFace);
   fontFace.load().then(function () {
     fabric.Image.fromURL('/' + IMAGE_ID + '.png', function (img) {
-      img.set({
-        left: 0, top: 0,
-        selectable: false, evented: false,
-        hasControls: false,
-        lockMovementX: true, lockMovementY: true,
-        isBackground: true,
-      });
-      canvas.setWidth(img.width);
-      canvas.setHeight(img.height);
-      canvas.add(img);
-      canvas.renderAll();
-      pushHistory();
+      initCanvas(img);
     }, { crossOrigin: 'anonymous' });
   }).catch(function () {
     // Font failed to load — proceed without custom font.
     fabric.Image.fromURL('/' + IMAGE_ID + '.png', function (img) {
-      img.set({
-        left: 0, top: 0,
-        selectable: false, evented: false,
-        hasControls: false,
-        lockMovementX: true, lockMovementY: true,
-        isBackground: true,
-      });
-      canvas.setWidth(img.width);
-      canvas.setHeight(img.height);
-      canvas.add(img);
-      canvas.renderAll();
-      pushHistory();
+      initCanvas(img);
     }, { crossOrigin: 'anonymous' });
   });
 
@@ -291,6 +288,7 @@
     document.querySelectorAll('.tool-btn[data-tool]').forEach(function (btn) {
       btn.classList.toggle('is-active', btn.dataset.tool === tool);
     });
+    setCookie('annotate_tool', tool);
   }
 
   function setColor(color, btn) {
@@ -299,6 +297,7 @@
       s.classList.remove('is-active');
     });
     btn.classList.add('is-active');
+    setCookie('annotate_color', color);
   }
 
   function setStroke(w, btn) {
@@ -307,12 +306,32 @@
       s.classList.remove('is-active');
     });
     btn.classList.add('is-active');
+    setCookie('annotate_stroke', String(w));
   }
 
   // Make these callable from inline onclick attrs
   window.setTool = setTool;
   window.setColor = setColor;
   window.setStroke = setStroke;
+
+  // ── Restore preferences from cookies ─────────────────
+  (function () {
+    var tool = getCookie('annotate_tool');
+    if (tool && document.querySelector('.tool-btn[data-tool="' + tool + '"]')) {
+      setTool(tool);
+    }
+    var color = getCookie('annotate_color');
+    if (color) {
+      var swatch = document.querySelector('.swatch[data-color="' + color + '"]');
+      if (swatch) setColor(color, swatch);
+    }
+    var stroke = getCookie('annotate_stroke');
+    if (stroke) {
+      var sw = parseInt(stroke, 10);
+      var strokeBtn = document.querySelector('.stroke-btn[data-sw="' + sw + '"]');
+      if (strokeBtn) setStroke(sw, strokeBtn);
+    }
+  }());
 
   // ── Arrow helper ─────────────────────────────────────
   function makeArrow(x1, y1, x2, y2, color, sw) {
@@ -427,22 +446,24 @@
   // Push history after moving/scaling existing objects
   canvas.on('object:modified', pushHistory);
 
-  // ── Expand canvas ─────────────────────────────────────
-  function expandCanvas() {
-    var px = EXPAND_PX;
-    var oldW = canvas.getWidth();
-    var oldH = canvas.getHeight();
-
+  // ── Content bounding box ──────────────────────────────
+  // Returns the union bounding rect of all canvas objects, clamped to the
+  // canvas bounds.
+  function getContentBoundingBox() {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     canvas.forEachObject(function (obj) {
-      obj.set({ left: obj.left + px, top: obj.top + px });
-      obj.setCoords();
+      var r = obj.getBoundingRect(true, true);
+      minX = Math.min(minX, r.left);
+      minY = Math.min(minY, r.top);
+      maxX = Math.max(maxX, r.left + r.width);
+      maxY = Math.max(maxY, r.top + r.height);
     });
-    canvas.setWidth(oldW + px * 2);
-    canvas.setHeight(oldH + px * 2);
-    canvas.renderAll();
-    pushHistory();
+    minX = Math.max(0, Math.floor(minX));
+    minY = Math.max(0, Math.floor(minY));
+    maxX = Math.min(canvas.getWidth(), Math.ceil(maxX));
+    maxY = Math.min(canvas.getHeight(), Math.ceil(maxY));
+    return { left: minX, top: minY, width: maxX - minX, height: maxY - minY };
   }
-  window.expandCanvas = expandCanvas;
 
   // ── Save ─────────────────────────────────────────────
   function saveAnnotation() {
@@ -453,7 +474,13 @@
     canvas.discardActiveObject();
     canvas.renderAll();
 
-    canvas.toCanvasElement().toBlob(function (blob) {
+    var bb = getContentBoundingBox();
+    var full = canvas.toCanvasElement();
+    var crop = document.createElement('canvas');
+    crop.width = bb.width;
+    crop.height = bb.height;
+    crop.getContext('2d').drawImage(full, bb.left, bb.top, bb.width, bb.height, 0, 0, bb.width, bb.height);
+    crop.toBlob(function (blob) {
       fetch('/' + IMAGE_ID + '/annotate', {
         method: 'POST',
         credentials: 'same-origin',
@@ -479,7 +506,6 @@
 
   // ── Cancel ────────────────────────────────────────────
   function cancelAnnotate() {
-    if (history.length > 1 && !confirm('Discard annotations and go back?')) return;
     leaving = true;
     window.location.href = '/' + IMAGE_ID;
   }
