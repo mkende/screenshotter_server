@@ -3,11 +3,13 @@ package server
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -26,6 +28,7 @@ func New(cfg *config.Config, h *handlers.Handlers, authSvc *auth.Service) http.H
 
 	r.Use(realIPMiddleware(trustedNets))
 	r.Use(middleware.RequestID)
+	r.Use(requestLogger)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(cfg))
 
@@ -168,6 +171,45 @@ func ipInNets(ip string, nets []*net.IPNet) bool {
 		}
 	}
 	return false
+}
+
+// ── Request logger ────────────────────────────────────────────────────────────
+
+// statusRecorder wraps http.ResponseWriter to capture the response status code.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sr *statusRecorder) WriteHeader(code int) {
+	sr.status = code
+	sr.ResponseWriter.WriteHeader(code)
+}
+
+// requestLogger logs one structured line per request after it completes.
+// It reads auth claims from the context after the handler runs, so user info
+// is present for authenticated routes.
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		attrs := []any{
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"ip", bareIP(r.RemoteAddr),
+			"duration_ms", time.Since(start).Milliseconds(),
+			"request_id", middleware.GetReqID(r.Context()),
+		}
+		if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
+			attrs = append(attrs, "user_id", claims.UserID, "email", claims.Email)
+		} else {
+			attrs = append(attrs, "user_id", nil)
+		}
+		slog.Info("request", attrs...)
+	})
 }
 
 // ── CORS middleware ───────────────────────────────────────────────────────────

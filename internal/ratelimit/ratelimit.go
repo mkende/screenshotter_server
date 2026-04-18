@@ -5,6 +5,7 @@
 package ratelimit
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -80,9 +81,15 @@ func (m *memLimiter) Allow(ip string) bool {
 	s.minuteTs = pruneOlderThan(s.minuteTs, now.Add(-time.Minute))
 
 	if m.cfg.RequestsPerSecond > 0 && len(s.secondTs) >= m.cfg.RequestsPerSecond {
+		slog.Warn("rate limit exceeded", "ip", ip, "limit", "per_second",
+			"count", len(s.secondTs), "limit_value", m.cfg.RequestsPerSecond,
+			"minute_count", len(s.minuteTs), "minute_limit", m.cfg.RequestsPerMinute)
 		return false
 	}
 	if m.cfg.RequestsPerMinute > 0 && len(s.minuteTs) >= m.cfg.RequestsPerMinute {
+		slog.Warn("rate limit exceeded", "ip", ip, "limit", "per_minute",
+			"count", len(s.minuteTs), "limit_value", m.cfg.RequestsPerMinute,
+			"second_count", len(s.secondTs), "second_limit", m.cfg.RequestsPerSecond)
 		return false
 	}
 
