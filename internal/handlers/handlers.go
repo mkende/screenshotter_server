@@ -12,6 +12,7 @@ import (
 	"github.com/mkende/screenshotter/server/internal/config"
 	"github.com/mkende/screenshotter/server/internal/db"
 	"github.com/mkende/screenshotter/server/internal/storage"
+	"github.com/mkende/screenshotter/server/internal/version"
 )
 
 // Handlers holds shared dependencies for all HTTP handlers.
@@ -61,6 +62,7 @@ type pageData struct {
 	User        *auth.Identity
 	OIDCEnabled bool
 	Title       string
+	Version     string
 }
 
 // newPageData returns a pageData populated with the common fields.
@@ -69,6 +71,7 @@ func (h *Handlers) newPageData(r *http.Request) pageData {
 		User:        auth.FromContext(r.Context()),
 		OIDCEnabled: h.cfg.OIDC.Enabled,
 		Title:       h.cfg.Title,
+		Version:     version.Version,
 	}
 }
 

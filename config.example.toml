@@ -132,7 +132,7 @@ dsn = "/var/lib/screenshotter/db.sqlite"
 # Treat every request as a single shared anonymous user. No login flow.
 # WARNING: do not enable on a publicly reachable server.
 [anonymous]
-enabled = true
+# enabled = true
 # Grants the anonymous user full admin privileges. Default: false.
 # is_admin = false
 
