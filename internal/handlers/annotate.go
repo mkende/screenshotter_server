@@ -78,6 +78,10 @@ func (h *Handlers) Annotate(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusBadRequest, "uploaded file is not a valid PNG image")
 			return
 		}
+		if errors.Is(err, storage.ErrImageTooLarge) {
+			writeJSONError(w, http.StatusBadRequest, "image dimensions are too large")
+			return
+		}
 		slog.Error("save annotated image", "id", id, "err", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to save annotated image")
 		return

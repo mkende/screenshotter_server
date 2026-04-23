@@ -4,6 +4,7 @@ package storage
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/png"
@@ -15,7 +16,14 @@ import (
 )
 
 const (
-	thumbMaxDim = 320 // longest side of the generated thumbnail in pixels
+	thumbMaxDim    = 320        // longest side of the generated thumbnail in pixels
+	maxImageDim    = 20_000     // maximum width or height accepted before decoding
+	maxImagePixels = 50_000_000 // maximum total pixel count (50 Mpx)
+
+	// PNG structure: 8-byte magic + 4-byte IHDR length + 4-byte "IHDR" type,
+	// then 4-byte width + 4-byte height. ihdrWidthOffset is the byte index of width.
+	ihdrWidthOffset = 16
+	ihdrMinBytes    = 24 // minimum bytes needed to read IHDR dimensions
 )
 
 // pngMagic is the 8-byte PNG file signature.
@@ -45,6 +53,9 @@ func (s *Storage) Save(id string, r io.Reader) (filePath string, err error) {
 	}
 	if !isPNG(data) {
 		return "", ErrNotPNG
+	}
+	if err := checkPNGDimensions(data); err != nil {
+		return "", err
 	}
 	imgPath := s.imagePath(id)
 	if err := os.WriteFile(imgPath, data, 0o640); err != nil {
@@ -86,6 +97,22 @@ func (s *Storage) thumbPath(id string) string {
 
 func isPNG(data []byte) bool {
 	return len(data) >= len(pngMagic) && bytes.Equal(data[:len(pngMagic)], pngMagic)
+}
+
+// checkPNGDimensions reads the IHDR width and height from data and returns
+// ErrImageTooLarge if either dimension exceeds maxImageDim or the total pixel
+// count exceeds maxImagePixels. This is called before png.Decode to prevent
+// decompression-bomb DoS on crafted inputs.
+func checkPNGDimensions(data []byte) error {
+	if len(data) < ihdrMinBytes {
+		return ErrNotPNG
+	}
+	w := binary.BigEndian.Uint32(data[ihdrWidthOffset:])
+	h := binary.BigEndian.Uint32(data[ihdrWidthOffset+4:])
+	if w > maxImageDim || h > maxImageDim || uint64(w)*uint64(h) > maxImagePixels {
+		return ErrImageTooLarge
+	}
+	return nil
 }
 
 func (s *Storage) generateThumb(id string, data []byte) error {
@@ -135,3 +162,6 @@ func scaleDown(src image.Image, maxDim int) image.Image {
 
 // ErrNotPNG is returned when the uploaded file does not have a valid PNG header.
 var ErrNotPNG = fmt.Errorf("uploaded file is not a valid PNG")
+
+// ErrImageTooLarge is returned when the PNG dimensions exceed the safe limit.
+var ErrImageTooLarge = fmt.Errorf("image dimensions exceed the allowed maximum (%dx%d px or %d Mpx total)", maxImageDim, maxImageDim, maxImagePixels/1_000_000)

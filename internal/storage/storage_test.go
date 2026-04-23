@@ -2,6 +2,8 @@ package storage
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -181,6 +183,74 @@ func TestScaleDown(t *testing.T) {
 			t.Errorf("expected 320x320, got %dx%d", b.Dx(), b.Dy())
 		}
 	})
+}
+
+// makePNGHeader returns exactly ihdrMinBytes bytes containing a valid PNG magic
+// and IHDR chunk header with the given dimensions, but no actual image data.
+// This lets tests exercise checkPNGDimensions without allocating large images.
+func makePNGHeader(w, h uint32) []byte {
+	buf := make([]byte, ihdrMinBytes)
+	copy(buf, pngMagic)
+	// IHDR chunk: 4-byte length (13), 4-byte type "IHDR", 4-byte width, 4-byte height.
+	binary.BigEndian.PutUint32(buf[8:], 13)
+	copy(buf[12:], []byte("IHDR"))
+	binary.BigEndian.PutUint32(buf[16:], w)
+	binary.BigEndian.PutUint32(buf[20:], h)
+	return buf
+}
+
+// TestCheckPNGDimensions exercises the dimension guard against decompression bombs.
+func TestCheckPNGDimensions(t *testing.T) {
+	t.Run("normal dimensions accepted", func(t *testing.T) {
+		if err := checkPNGDimensions(makePNGHeader(1920, 1080)); err != nil {
+			t.Errorf("expected no error, got: %v", err)
+		}
+	})
+	t.Run("at exact limit accepted", func(t *testing.T) {
+		if err := checkPNGDimensions(makePNGHeader(maxImageDim, 1)); err != nil {
+			t.Errorf("expected no error at limit, got: %v", err)
+		}
+	})
+	t.Run("width over limit rejected", func(t *testing.T) {
+		err := checkPNGDimensions(makePNGHeader(maxImageDim+1, 100))
+		if !errors.Is(err, ErrImageTooLarge) {
+			t.Errorf("expected ErrImageTooLarge, got: %v", err)
+		}
+	})
+	t.Run("height over limit rejected", func(t *testing.T) {
+		err := checkPNGDimensions(makePNGHeader(100, maxImageDim+1))
+		if !errors.Is(err, ErrImageTooLarge) {
+			t.Errorf("expected ErrImageTooLarge, got: %v", err)
+		}
+	})
+	t.Run("pixel count over limit rejected", func(t *testing.T) {
+		// 10000×6000 = 60 Mpx > maxImagePixels but each dim < maxImageDim.
+		err := checkPNGDimensions(makePNGHeader(10_000, 6_000))
+		if !errors.Is(err, ErrImageTooLarge) {
+			t.Errorf("expected ErrImageTooLarge for 60 Mpx image, got: %v", err)
+		}
+	})
+	t.Run("too short data returns ErrNotPNG", func(t *testing.T) {
+		err := checkPNGDimensions(makePNGHeader(100, 100)[:10])
+		if !errors.Is(err, ErrNotPNG) {
+			t.Errorf("expected ErrNotPNG for truncated header, got: %v", err)
+		}
+	})
+}
+
+// TestSave_RejectsOversizedDimensions ensures Save returns ErrImageTooLarge for
+// a PNG whose IHDR declares dimensions beyond the allowed maximum.
+func TestSave_RejectsOversizedDimensions(t *testing.T) {
+	// Build a real tiny PNG and patch its IHDR width to a forbidden value.
+	data := makePNG(t, 10, 10)
+	binary.BigEndian.PutUint32(data[ihdrWidthOffset:], maxImageDim+1)
+	// The CRC will be invalid, but checkPNGDimensions fires before png.Decode.
+
+	s := newTestStorage(t)
+	_, err := s.Save("testid", bytes.NewReader(data))
+	if !errors.Is(err, ErrImageTooLarge) {
+		t.Errorf("expected ErrImageTooLarge, got: %v", err)
+	}
 }
 
 // TestNew_CreatesDirectories confirms that New creates the base and thumbs dirs.

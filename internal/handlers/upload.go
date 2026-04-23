@@ -58,6 +58,10 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 			writeJSONError(w, http.StatusBadRequest, "uploaded file is not a valid PNG image")
 			return
 		}
+		if errors.Is(err, storage.ErrImageTooLarge) {
+			writeJSONError(w, http.StatusBadRequest, "image dimensions are too large")
+			return
+		}
 		slog.Error("save image", "id", id, "err", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to save image")
 		return
