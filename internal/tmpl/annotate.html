@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Annotate — Screenshotter</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="/assets/bulma-1.0.2.min.css">
+  <link rel="stylesheet" href="/assets/font-awesome-6.5.0.min.css">
   <style>
     html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
 
@@ -110,64 +110,58 @@
   <!-- ── Toolbar ──────────────────────────────────────── -->
   <div id="toolbar">
     <!-- Tools -->
-    <button class="tool-btn is-active" data-tool="select" onclick="setTool('select')" title="Select (V)">
+    <button class="tool-btn is-active" data-tool="select" title="Select (V)">
       <i class="fa fa-arrow-pointer"></i>
     </button>
-    <button class="tool-btn" data-tool="rect" onclick="setTool('rect')" title="Rectangle (R)">
+    <button class="tool-btn" data-tool="rect" title="Rectangle (R)">
       <i class="fa-regular fa-square" style="font-size:14px"></i>
     </button>
-    <button class="tool-btn" data-tool="arrow" onclick="setTool('arrow')" title="Arrow (A)">
+    <button class="tool-btn" data-tool="arrow" title="Arrow (A)">
       <i class="fa fa-arrow-right"></i>
     </button>
-    <button class="tool-btn" data-tool="text" onclick="setTool('text')" title="Text (T)">
+    <button class="tool-btn" data-tool="text" title="Text (T)">
       <span style="font-weight:700;font-size:17px;font-family:serif">T</span>
     </button>
-    <button class="tool-btn" data-tool="redact" onclick="setTool('redact')" title="Redact (X) — solid black rectangle">
+    <button class="tool-btn" data-tool="redact" title="Redact (X) — solid black rectangle">
       <i class="fa fa-eye-slash" style="font-size:14px"></i>
     </button>
 
     <hr class="tool-sep">
 
     <!-- Color palette -->
-    <button class="swatch is-active" data-color="#ef4444" style="background:#ef4444"
-            onclick="setColor('#ef4444',this)" title="Red"></button>
-    <button class="swatch" data-color="#eab308" style="background:#eab308"
-            onclick="setColor('#eab308',this)" title="Yellow"></button>
-    <button class="swatch" data-color="#22c55e" style="background:#22c55e"
-            onclick="setColor('#22c55e',this)" title="Green"></button>
-    <button class="swatch" data-color="#3b82f6" style="background:#3b82f6"
-            onclick="setColor('#3b82f6',this)" title="Blue"></button>
-    <button class="swatch" data-color="#111111" style="background:#111111"
-            onclick="setColor('#111111',this)" title="Black"></button>
-    <button class="swatch" data-color="#ffffff" style="background:#ffffff;border-color:#aaa"
-            onclick="setColor('#ffffff',this)" title="White"></button>
+    <button class="swatch is-active" data-color="#ef4444" style="background:#ef4444" title="Red"></button>
+    <button class="swatch" data-color="#eab308" style="background:#eab308" title="Yellow"></button>
+    <button class="swatch" data-color="#22c55e" style="background:#22c55e" title="Green"></button>
+    <button class="swatch" data-color="#3b82f6" style="background:#3b82f6" title="Blue"></button>
+    <button class="swatch" data-color="#111111" style="background:#111111" title="Black"></button>
+    <button class="swatch" data-color="#ffffff" style="background:#ffffff;border-color:#aaa" title="White"></button>
 
     <hr class="tool-sep">
 
     <!-- Stroke width -->
-    <button class="stroke-btn is-active" data-sw="2" onclick="setStroke(2,this)" title="Thin">
+    <button class="stroke-btn is-active" data-sw="2" title="Thin">
       <div class="stroke-line" style="height:2px"></div>
     </button>
-    <button class="stroke-btn" data-sw="4" onclick="setStroke(4,this)" title="Medium">
+    <button class="stroke-btn" data-sw="4" title="Medium">
       <div class="stroke-line" style="height:4px"></div>
     </button>
-    <button class="stroke-btn" data-sw="7" onclick="setStroke(7,this)" title="Thick">
+    <button class="stroke-btn" data-sw="7" title="Thick">
       <div class="stroke-line" style="height:7px"></div>
     </button>
 
     <hr class="tool-sep">
 
     <!-- Undo -->
-    <button class="tool-btn" onclick="undo()" title="Undo (Ctrl+Z)">
+    <button id="undo-btn" class="tool-btn" title="Undo (Ctrl+Z)">
       <i class="fa fa-rotate-left"></i>
     </button>
 
     <!-- Right-side actions -->
     <div id="toolbar-actions">
-      <button class="action-btn" onclick="cancelAnnotate()" title="Cancel">
+      <button id="cancel-btn" class="action-btn" title="Cancel">
         <i class="fa fa-xmark"></i>
       </button>
-      <button class="action-btn is-save" id="save-btn" onclick="saveAnnotation()" title="Save">
+      <button id="save-btn" class="action-btn is-save" title="Save">
         <i class="fa fa-check"></i>
       </button>
     </div>
@@ -180,8 +174,8 @@
 
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
-<script>
+<script src="/assets/fabric-5.3.0.min.js" nonce="{{.Nonce}}"></script>
+<script nonce="{{.Nonce}}">
 (function () {
   'use strict';
 
@@ -309,10 +303,19 @@
     setCookie('annotate_stroke', String(w));
   }
 
-  // Make these callable from inline onclick attrs
-  window.setTool = setTool;
-  window.setColor = setColor;
-  window.setStroke = setStroke;
+  // ── Wire toolbar buttons ─────────────────────────────
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(function (btn) {
+    btn.addEventListener('click', function () { setTool(btn.dataset.tool); });
+  });
+  document.querySelectorAll('.swatch[data-color]').forEach(function (swatch) {
+    swatch.addEventListener('click', function () { setColor(swatch.dataset.color, swatch); });
+  });
+  document.querySelectorAll('.stroke-btn[data-sw]').forEach(function (btn) {
+    btn.addEventListener('click', function () { setStroke(parseInt(btn.dataset.sw, 10), btn); });
+  });
+  document.getElementById('undo-btn').addEventListener('click', undo);
+  document.getElementById('cancel-btn').addEventListener('click', cancelAnnotate);
+  document.getElementById('save-btn').addEventListener('click', saveAnnotation);
 
   // ── Restore preferences from cookies ─────────────────
   (function () {
@@ -502,15 +505,12 @@
       });
     }, 'image/png');
   }
-  window.saveAnnotation = saveAnnotation;
 
   // ── Cancel ────────────────────────────────────────────
   function cancelAnnotate() {
     leaving = true;
     window.location.href = '/' + IMAGE_ID;
   }
-  window.cancelAnnotate = cancelAnnotate;
-  window.undo = undo;
 
   // Warn before leaving with unsaved changes (e.g. accidental tab close or navigation).
   window.addEventListener('beforeunload', function (e) {

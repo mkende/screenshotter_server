@@ -16,6 +16,7 @@ import (
 	"github.com/mkende/screenshotter/server/internal/handlers"
 	"github.com/mkende/screenshotter/server/internal/ratelimit"
 	mw "github.com/mkende/screenshotter/server/internal/server/middleware"
+	"github.com/mkende/screenshotter/server/internal/static"
 )
 
 // New builds and returns the main HTTP handler.
@@ -73,6 +74,9 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	if faviconFile := resolveFaviconPath(cfg); faviconFile != "" {
 		r.Get("/favicon.ico", faviconHandler(faviconFile))
 	}
+
+	// Static assets (CSS, JS, webfonts) — embedded in the binary, no auth required.
+	r.Handle("/assets/*", http.StripPrefix("/assets", http.FileServerFS(static.Files)))
 
 	// OIDC routes: present only when OIDC is enabled. The middleware stack
 	// (DomainRedirect, SecurityHeaders, CORS, auth providers) still runs so

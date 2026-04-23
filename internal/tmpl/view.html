@@ -102,14 +102,14 @@
   {{if .Image.SourceURL}}
   <a class="meta-url" href="{{.Image.SourceURL}}" target="_blank" rel="noopener noreferrer"
      title="{{.Image.SourceURL}}">{{.Image.SourceURL}}</a>
-  <button class="btn-copy-icon" onclick="copyText('{{.Image.SourceURL}}', this)" title="Copy source URL">
+  <button id="btn-copy-source" class="btn-copy-icon" data-copy-text="{{.Image.SourceURL}}" title="Copy source URL">
     <span class="icon is-small"><i class="fa fa-copy"></i></span>
   </button>
   {{else}}
   <span class="meta-url is-unnamed" title="No source URL set">(no URL set)</span>
   {{end}}
   {{if .IsOwner}}
-  <button class="button is-ghost is-small" onclick="startEdit()" title="Edit title and source URL">
+  <button id="btn-edit" class="button is-ghost is-small" title="Edit title and source URL">
     <span class="icon is-small"><i class="fa fa-pencil"></i></span>
   </button>
   {{end}}
@@ -117,7 +117,7 @@
 
 {{if .IsOwner}}
 {{/* Edit mode: inputs for title and URL, hidden until pencil is clicked */}}
-<form id="meta-edit" style="display:none" onsubmit="saveEdit(event)">
+<form id="meta-edit" style="display:none">
   <input id="edit-title" class="input is-small" type="text"
          placeholder="Title (empty to clear)"
          value="{{if .Image.Title}}{{.Image.Title}}{{end}}">
@@ -125,7 +125,7 @@
          placeholder="Source URL (leave blank to clear)"
          value="{{if .Image.SourceURL}}{{.Image.SourceURL}}{{end}}">
   <button type="submit" class="button is-primary is-small">Save</button>
-  <button type="button" class="button is-light is-small" onclick="cancelEdit()">Cancel</button>
+  <button id="btn-cancel-edit" type="button" class="button is-light is-small">Cancel</button>
 </form>
 {{end}}
 {{end}}
@@ -133,9 +133,9 @@
 {{define "navbar-end"}}
 <div class="navbar-item">
   <div class="buttons">
-    <button class="button is-light is-small"
+    <button id="btn-copy-link" class="button is-light is-small"
             title="Copy link: {{.CurrentURL}}"
-            onclick="copyText('{{.CurrentURL}}', this)">
+            data-copy-text="{{.CurrentURL}}">
       <span class="icon is-small"><i class="fa fa-link"></i></span>
       <span>Copy link</span>
     </button>
@@ -152,7 +152,7 @@
       <span class="icon is-small"><i class="fa fa-pen-ruler"></i></span>
       <span>Annotate</span>
     </a>
-    <button class="button is-danger is-light is-small" onclick="deleteImage('{{.Image.ID}}')">
+    <button id="btn-delete" class="button is-danger is-light is-small" data-image-id="{{.Image.ID}}">
       <span class="icon is-small"><i class="fa fa-trash"></i></span>
       <span>Delete</span>
     </button>
@@ -166,7 +166,7 @@
   <img src="/{{.Image.ID}}.png" alt="screenshot">
 </div>
 
-<script>
+<script nonce="{{.Nonce}}">
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
     const icon = btn.querySelector('i');
@@ -218,5 +218,37 @@ function saveEdit(e) {
     else { return r.json().then(j => { alert('Save failed: ' + (j.error || r.status)); }); }
   }).catch(() => alert('Network error while saving.'));
 }
+
+(function () {
+  var btnCopySource = document.getElementById('btn-copy-source');
+  if (btnCopySource) {
+    btnCopySource.addEventListener('click', function () {
+      copyText(btnCopySource.dataset.copyText, btnCopySource);
+    });
+  }
+
+  var btnEdit = document.getElementById('btn-edit');
+  if (btnEdit) { btnEdit.addEventListener('click', startEdit); }
+
+  var form = document.getElementById('meta-edit');
+  if (form) { form.addEventListener('submit', saveEdit); }
+
+  var btnCancelEdit = document.getElementById('btn-cancel-edit');
+  if (btnCancelEdit) { btnCancelEdit.addEventListener('click', cancelEdit); }
+
+  var btnCopyLink = document.getElementById('btn-copy-link');
+  if (btnCopyLink) {
+    btnCopyLink.addEventListener('click', function () {
+      copyText(btnCopyLink.dataset.copyText, btnCopyLink);
+    });
+  }
+
+  var btnDelete = document.getElementById('btn-delete');
+  if (btnDelete) {
+    btnDelete.addEventListener('click', function () {
+      deleteImage(btnDelete.dataset.imageId);
+    });
+  }
+}());
 </script>
 {{end}}

@@ -11,6 +11,7 @@ import (
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/config"
 	"github.com/mkende/screenshotter/server/internal/db"
+	mw "github.com/mkende/screenshotter/server/internal/server/middleware"
 	"github.com/mkende/screenshotter/server/internal/storage"
 	"github.com/mkende/screenshotter/server/internal/version"
 )
@@ -63,6 +64,9 @@ type pageData struct {
 	OIDCEnabled bool
 	Title       string
 	Version     string
+	// Nonce is the per-request CSP nonce. Every <script> tag in the templates
+	// must carry nonce="{{.Nonce}}" for the script-src policy to permit it.
+	Nonce string
 }
 
 // newPageData returns a pageData populated with the common fields.
@@ -72,6 +76,7 @@ func (h *Handlers) newPageData(r *http.Request) pageData {
 		OIDCEnabled: h.cfg.OIDC.Enabled,
 		Title:       h.cfg.Title,
 		Version:     version.Version,
+		Nonce:       mw.NonceFromContext(r.Context()),
 	}
 }
 
