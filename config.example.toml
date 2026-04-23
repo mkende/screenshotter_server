@@ -78,8 +78,14 @@ storage_path = "/var/lib/screenshotter/images"
 # ---------------------------------------------------------------------------
 
 [session]
-# How long an issued session JWT remains valid. Default: "720h" (30 days).
-# ttl = "720h"
+# Hard expiry of a session JWT. A user who makes no request for this long is
+# logged out. Default: "168h" (7 days).
+# ttl = "168h"
+
+# Minimum token age before silent renewal. On any authenticated request older
+# than this threshold the server issues a fresh cookie, keeping active users
+# logged in without an OIDC round-trip. Must be less than ttl. Default: "1h".
+# renewal_delay = "1h"
 
 # ---------------------------------------------------------------------------
 # Home-page gallery layout

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/mkende/screenshotter/server/internal/config"
@@ -224,10 +225,19 @@ func OIDCMiddleware(cfg *config.Config, logger *slog.Logger) func(http.Handler) 
 				next.ServeHTTP(w, r)
 				return
 			}
-			id := parseSessionCookie(r, cfg)
+			id, issuedAt := parseSessionCookie(r, cfg)
 			if id == nil {
 				next.ServeHTTP(w, r)
 				return
+			}
+			// Silently renew the session cookie once per renewal_delay interval.
+			// This keeps active sessions alive without an OIDC round-trip. The
+			// Set-Cookie header is added before the body is written, so it
+			// works for both browser and Chrome extension requests.
+			if !issuedAt.IsZero() && time.Since(issuedAt) > cfg.Session.RenewalDelay.Duration {
+				if err := issueSessionCookie(w, cfg, id); err != nil {
+					logger.WarnContext(r.Context(), "oidc: session renewal failed", "error", err)
+				}
 			}
 			logger.DebugContext(r.Context(), "oidc: identity established from session cookie",
 				"email", id.Email,

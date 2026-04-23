@@ -230,7 +230,8 @@ automatically on startup.
 | `log_level` | `info` |
 | `server.max_upload_mb` | `4` |
 | `id.length` | `8` |
-| `session.ttl` | `720h` (30 days) |
+| `session.ttl` | `168h` (7 days) |
+| `session.renewal_delay` | `1h` |
 | `home.cols` | `5` |
 | `home.page_size` | `20` |
 | `ratelimit.requests_per_second` | `5` |

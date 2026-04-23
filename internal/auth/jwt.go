@@ -67,12 +67,13 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// parseSessionCookie validates the session cookie and returns an Identity.
-// Returns nil if the cookie is absent or invalid.
-func parseSessionCookie(r *http.Request, cfg *config.Config) *Identity {
+// parseSessionCookie validates the session cookie and returns an Identity and
+// the token's IssuedAt time. Returns nil and a zero time if the cookie is
+// absent or invalid.
+func parseSessionCookie(r *http.Request, cfg *config.Config) (*Identity, time.Time) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
-		return nil
+		return nil, time.Time{}
 	}
 	var claims sessionClaims
 	token, err := jwt.ParseWithClaims(cookie.Value, &claims, func(t *jwt.Token) (any, error) {
@@ -82,7 +83,7 @@ func parseSessionCookie(r *http.Request, cfg *config.Config) *Identity {
 		return []byte(cfg.JWTSecret), nil
 	})
 	if err != nil || !token.Valid {
-		return nil
+		return nil, time.Time{}
 	}
 	id := &Identity{
 		Email:       claims.Email,
@@ -92,5 +93,9 @@ func parseSessionCookie(r *http.Request, cfg *config.Config) *Identity {
 		Source:      AuthSourceOIDC,
 	}
 	id.IsAdmin = isAdmin(cfg, id)
-	return id
+	var issuedAt time.Time
+	if claims.IssuedAt != nil {
+		issuedAt = claims.IssuedAt.Time
+	}
+	return id, issuedAt
 }

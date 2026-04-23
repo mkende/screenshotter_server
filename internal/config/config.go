@@ -114,10 +114,16 @@ type ServerConfig struct {
 	RequireAuthToView bool `toml:"require_auth_to_view"`
 }
 
-// SessionConfig controls session cookie lifetime.
+// SessionConfig controls session cookie lifetime and silent renewal behaviour.
 type SessionConfig struct {
-	// TTL is how long an issued session JWT remains valid.
+	// TTL is the hard expiry of an issued session JWT. Default: 168h (7 days).
+	// A user who makes no requests for this long will be logged out.
 	TTL TOMLDuration `toml:"ttl"`
+	// RenewalDelay is the minimum age of a token before it is silently renewed.
+	// Default: 1h. On any authenticated request older than this threshold the
+	// server issues a fresh cookie with a new TTL, keeping active users logged
+	// in indefinitely without an OIDC round-trip. Must be less than TTL.
+	RenewalDelay TOMLDuration `toml:"renewal_delay"`
 }
 
 // CORSConfig lists the Chrome extension IDs allowed to make credentialed
@@ -310,7 +316,10 @@ func defaults() *Config {
 		Title:       "Screenshotter",
 		LogLevel:    "info",
 		Server:      ServerConfig{MaxUploadMB: 4},
-		Session:     SessionConfig{TTL: TOMLDuration{720 * time.Hour}},
+		Session: SessionConfig{
+			TTL:          TOMLDuration{7 * 24 * time.Hour},
+			RenewalDelay: TOMLDuration{time.Hour},
+		},
 		ID:          IDConfig{Length: 8},
 		Home:        HomeConfig{Cols: 5, PageSize: 20},
 		RateLimit:   RateLimitConfig{RequestsPerSecond: 5, RequestsPerMinute: 50},
@@ -403,6 +412,15 @@ func validate(c *Config) error {
 		}
 		if len(c.JWTSecret) < 32 {
 			return fmt.Errorf("jwt_secret must be at least 32 characters")
+		}
+		if c.Session.TTL.Duration <= 0 {
+			return errors.New("session.ttl must be positive")
+		}
+		if c.Session.RenewalDelay.Duration < 0 {
+			return errors.New("session.renewal_delay must be non-negative")
+		}
+		if c.Session.RenewalDelay.Duration >= c.Session.TTL.Duration {
+			return errors.New("session.renewal_delay must be less than session.ttl")
 		}
 	}
 

@@ -199,8 +199,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.ID.Length != 8 {
 		t.Errorf("expected default id.length 8, got %d", cfg.ID.Length)
 	}
-	if cfg.Session.TTL.Duration != 720*time.Hour {
-		t.Errorf("expected default ttl 720h, got %v", cfg.Session.TTL.Duration)
+	if cfg.Session.TTL.Duration != 7*24*time.Hour {
+		t.Errorf("expected default ttl 168h, got %v", cfg.Session.TTL.Duration)
+	}
+	if cfg.Session.RenewalDelay.Duration != time.Hour {
+		t.Errorf("expected default renewal_delay 1h, got %v", cfg.Session.RenewalDelay.Duration)
 	}
 	if cfg.Title != "Screenshotter" {
 		t.Errorf("expected default Title Screenshotter, got %q", cfg.Title)
