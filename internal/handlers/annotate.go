@@ -73,7 +73,7 @@ func (h *Handlers) Annotate(w http.ResponseWriter, r *http.Request) {
 	maxBytes := h.cfg.Server.MaxUploadMB << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 
-	if _, err := h.storage.Save(id, r.Body); err != nil {
+	if err := h.storage.Save(id, r.Body); err != nil {
 		if errors.Is(err, storage.ErrNotPNG) {
 			writeJSONError(w, http.StatusBadRequest, "uploaded file is not a valid PNG image")
 			return

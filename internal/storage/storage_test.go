@@ -72,7 +72,7 @@ func TestIsPNG(t *testing.T) {
 // TestSave_RejectsNonPNG ensures Save returns ErrNotPNG for non-PNG data.
 func TestSave_RejectsNonPNG(t *testing.T) {
 	s := newTestStorage(t)
-	_, err := s.Save("testid", strings.NewReader("this is not a png"))
+	err := s.Save("testid", strings.NewReader("this is not a png"))
 	if err == nil {
 		t.Fatal("expected ErrNotPNG, got nil")
 	}
@@ -88,12 +88,8 @@ func TestSave_WritesFileAndThumbnail(t *testing.T) {
 	data := makePNG(t, 100, 80)
 	id := "abc12345"
 
-	filePath, err := s.Save(id, bytes.NewReader(data))
-	if err != nil {
+	if err := s.Save(id, bytes.NewReader(data)); err != nil {
 		t.Fatalf("Save: %v", err)
-	}
-	if filePath != id+".png" {
-		t.Errorf("unexpected filePath %q", filePath)
 	}
 
 	// Main image must exist.
@@ -112,7 +108,7 @@ func TestDelete_RemovesBothFiles(t *testing.T) {
 	data := makePNG(t, 50, 50)
 	id := "deltest1"
 
-	if _, err := s.Save(id, bytes.NewReader(data)); err != nil {
+	if err := s.Save(id, bytes.NewReader(data)); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -247,7 +243,7 @@ func TestSave_RejectsOversizedDimensions(t *testing.T) {
 	// The CRC will be invalid, but checkPNGDimensions fires before png.Decode.
 
 	s := newTestStorage(t)
-	_, err := s.Save("testid", bytes.NewReader(data))
+	err := s.Save("testid", bytes.NewReader(data))
 	if !errors.Is(err, ErrImageTooLarge) {
 		t.Errorf("expected ErrImageTooLarge, got: %v", err)
 	}

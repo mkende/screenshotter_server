@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,8 +13,8 @@ import (
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/lib/pq"
+	sqlite "github.com/mattn/go-sqlite3"
 )
 
 //go:embed migrations/*.sql
@@ -163,6 +164,23 @@ func (d *DB) GetUser(ctx context.Context, email string) (*User, error) {
 	return u, nil
 }
 
+// ErrDuplicateID is returned by InsertImage when the generated ID already exists.
+var ErrDuplicateID = errors.New("image ID already exists")
+
+// isDuplicateKeyErr reports whether err is a unique-constraint violation from
+// either the SQLite or Postgres driver.
+func isDuplicateKeyErr(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505"
+	}
+	var sqErr sqlite.Error
+	if errors.As(err, &sqErr) {
+		return sqErr.Code == sqlite.ErrConstraint
+	}
+	return false
+}
+
 // --- Image queries ---
 
 // Image represents a stored screenshot record.
@@ -175,12 +193,15 @@ type Image struct {
 	CreatedAt time.Time
 }
 
-// InsertImage stores a new image record.
+// InsertImage stores a new image record. Returns ErrDuplicateID on PK collision.
 func (d *DB) InsertImage(ctx context.Context, img Image) error {
 	_, err := d.sql.ExecContext(ctx,
 		d.q(`INSERT INTO images (id, owner_id, source_url, file_path) VALUES (?, ?, ?, ?)`),
 		img.ID, img.OwnerID, img.SourceURL, img.FilePath)
 	if err != nil {
+		if isDuplicateKeyErr(err) {
+			return ErrDuplicateID
+		}
 		return fmt.Errorf("insert image: %w", err)
 	}
 	return nil

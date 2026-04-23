@@ -240,8 +240,7 @@ func setupImageForUser(t *testing.T, database *db.DB, stor *storage.Storage, ima
 		t.Fatalf("UpsertUser: %v", err)
 	}
 	pngData := makePNG(t, 20, 20)
-	filePath, err := stor.Save(imageID, bytes.NewReader(pngData))
-	if err != nil {
+	if err := stor.Save(imageID, bytes.NewReader(pngData)); err != nil {
 		t.Fatalf("stor.Save: %v", err)
 	}
 	u := "https://example.com"
@@ -249,7 +248,7 @@ func setupImageForUser(t *testing.T, database *db.DB, stor *storage.Storage, ima
 		ID:        imageID,
 		OwnerID:   email,
 		SourceURL: &u,
-		FilePath:  filePath,
+		FilePath:  imageID + ".png",
 	}); err != nil {
 		t.Fatalf("InsertImage: %v", err)
 	}

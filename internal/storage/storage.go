@@ -44,30 +44,65 @@ func New(base string) (*Storage, error) {
 	return &Storage{base: base}, nil
 }
 
-// Save reads all of r, validates the PNG magic bytes, writes the file to disk,
-// and generates a thumbnail. It returns the relative file path stored in the DB.
-func (s *Storage) Save(id string, r io.Reader) (filePath string, err error) {
+// ValidatePNG checks that data has a valid PNG header and is within dimension
+// limits. Returns ErrNotPNG or ErrImageTooLarge on failure.
+func ValidatePNG(data []byte) error {
+	if !isPNG(data) {
+		return ErrNotPNG
+	}
+	return checkPNGDimensions(data)
+}
+
+// SaveNew writes a new image for id using O_EXCL (fails if the file already
+// exists) and generates a thumbnail. data must be pre-validated with
+// ValidatePNG. Returns ErrIDCollision if the file already exists on disk.
+func (s *Storage) SaveNew(id string, data []byte) error {
+	imgPath := s.imagePath(id)
+	f, err := os.OpenFile(imgPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
+	if err != nil {
+		if os.IsExist(err) {
+			return ErrIDCollision
+		}
+		return fmt.Errorf("write image: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(imgPath)
+		return fmt.Errorf("write image: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(imgPath)
+		return fmt.Errorf("write image: %w", err)
+	}
+	if err := s.generateThumb(id, data); err != nil {
+		os.Remove(imgPath)
+		return fmt.Errorf("generate thumbnail: %w", err)
+	}
+	return nil
+}
+
+// Save reads all of r, validates the PNG, overwrites any existing file, and
+// regenerates the thumbnail. Used by the annotation path to replace images.
+func (s *Storage) Save(id string, r io.Reader) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return "", fmt.Errorf("read upload: %w", err)
+		return fmt.Errorf("read upload: %w", err)
 	}
 	if !isPNG(data) {
-		return "", ErrNotPNG
+		return ErrNotPNG
 	}
 	if err := checkPNGDimensions(data); err != nil {
-		return "", err
+		return err
 	}
 	imgPath := s.imagePath(id)
 	if err := os.WriteFile(imgPath, data, 0o640); err != nil {
-		return "", fmt.Errorf("write image: %w", err)
+		return fmt.Errorf("write image: %w", err)
 	}
-	// Generate thumbnail; ignore errors so a thumb failure doesn't fail the upload.
 	if err := s.generateThumb(id, data); err != nil {
-		// Best-effort: remove main file so the upload is fully rolled back.
 		os.Remove(imgPath)
-		return "", fmt.Errorf("generate thumbnail: %w", err)
+		return fmt.Errorf("generate thumbnail: %w", err)
 	}
-	return id + ".png", nil
+	return nil
 }
 
 // Delete removes the image and its thumbnail from disk.
@@ -165,3 +200,7 @@ var ErrNotPNG = fmt.Errorf("uploaded file is not a valid PNG")
 
 // ErrImageTooLarge is returned when the PNG dimensions exceed the safe limit.
 var ErrImageTooLarge = fmt.Errorf("image dimensions exceed the allowed maximum (%dx%d px or %d Mpx total)", maxImageDim, maxImageDim, maxImagePixels/1_000_000)
+
+// ErrIDCollision is returned by SaveNew when a file for the given ID already
+// exists on disk, indicating a corrupt state (file without a DB record).
+var ErrIDCollision = fmt.Errorf("image file already exists for this ID")
