@@ -144,12 +144,24 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var claims struct {
-		Email   string `json:"email"`
-		Name    string `json:"name"`
-		Picture string `json:"picture"`
+		Email         string `json:"email"`
+		EmailVerified *bool  `json:"email_verified"`
+		Name          string `json:"name"`
+		Picture       string `json:"picture"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		http.Error(w, "claims extraction failed", http.StatusInternalServerError)
+		return
+	}
+	if claims.Email == "" {
+		http.Error(w, "id_token missing email claim", http.StatusUnauthorized)
+		return
+	}
+	if h.cfg.OIDC.RequireEmailVerified && (claims.EmailVerified == nil || !*claims.EmailVerified) {
+		slog.WarnContext(r.Context(), "oidc: rejecting login with unverified email",
+			"email", claims.Email,
+			"email_verified_present", claims.EmailVerified != nil)
+		http.Error(w, "email is not verified by the identity provider", http.StatusUnauthorized)
 		return
 	}
 	var groups []string

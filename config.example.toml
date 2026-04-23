@@ -59,6 +59,12 @@ storage_path = "/var/lib/screenshotter/images"
 # Generate the favicon by running: node shared/generate-icons.js
 # assets_path = "/var/lib/screenshotter/assets"
 
+# When true, GET /{id} and GET /{id}.png require an authenticated session.
+# Default: false (any visitor who knows the random image ID can view it).
+# Enable in environments where screenshots may contain sensitive data and
+# the capability-URL model (secret-in-URL) is not appropriate.
+# require_auth_to_view = false
+
 # ---------------------------------------------------------------------------
 # Image IDs
 # ---------------------------------------------------------------------------
@@ -173,3 +179,7 @@ dsn = "/var/lib/screenshotter/db.sqlite"
 # Use PKCE (Proof Key for Code Exchange) in the OAuth2 flow.
 # Default: false (standard authorization code flow).
 # use_pkce = false
+# Reject logins whose ID token's `email_verified` claim is absent or false.
+# Default: true. Disable only for IdPs that don't emit the claim but that
+# are otherwise trusted to verify email addresses.
+# require_email_verified = true

@@ -80,6 +80,11 @@ type OIDCConfig struct {
 	// code_challenge are generated and used during the login flow.
 	// Defaults to false.
 	UsePKCE bool `toml:"use_pkce"`
+	// RequireEmailVerified rejects logins where the ID token's
+	// email_verified claim is absent or false. Defaults to true. Set to
+	// false only for IdPs that don't emit the claim but that are otherwise
+	// trusted to verify email addresses.
+	RequireEmailVerified bool `toml:"require_email_verified"`
 }
 
 // DBConfig holds database connection settings.
@@ -101,6 +106,12 @@ type ServerConfig struct {
 	// /favicon.ico is served from <assets_path>/favicon.ico (unless
 	// FaviconPath overrides it at the top level).
 	AssetsPath string `toml:"assets_path"`
+	// RequireAuthToView gates the public image routes (GET /{id} and
+	// GET /{id}.png) behind authentication. Defaults to false, in which
+	// case knowledge of the random image ID is sufficient to view it.
+	// Enable in environments where screenshots may contain sensitive data
+	// and capability-URL access is unacceptable.
+	RequireAuthToView bool `toml:"require_auth_to_view"`
 }
 
 // SessionConfig controls session cookie lifetime.
@@ -310,8 +321,9 @@ func defaults() *Config {
 			GroupsHeader: "Remote-Groups",
 		},
 		OIDC: OIDCConfig{
-			Scopes:      []string{"openid", "email", "profile"},
-			GroupsClaim: "groups",
+			Scopes:               []string{"openid", "email", "profile"},
+			GroupsClaim:          "groups",
+			RequireEmailVerified: true,
 		},
 		DB: DBConfig{Driver: "sqlite"},
 	}

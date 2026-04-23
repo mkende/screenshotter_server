@@ -30,9 +30,9 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 
 	// Order is critical here:
 	//   1. PreserveRemoteAddr saves the raw TCP peer before RealIP rewrites it.
-	//   2. RealIP rewrites r.RemoteAddr from X-Forwarded-For / X-Real-IP (chi
-	//      trusts the headers unconditionally; CIDR trust is enforced by the
-	//      auth middlewares reading the preserved peer from context).
+	//   2. TrustedRealIP rewrites r.RemoteAddr from forwarded headers, but
+	//      only when the TCP peer is in trusted_proxy. Direct-internet
+	//      clients cannot spoof their source IP.
 	//   3. RequestLogger opens a log span and allocates RequestAttrs so later
 	//      middleware can enrich the line.
 	//   4. Recoverer catches panics from subsequent middleware and handlers.
@@ -45,7 +45,7 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	//   9. LogEnricher reads the identity and fills request-scoped logger +
 	//      log attrs.
 	r.Use(mw.PreserveRemoteAddr)
-	r.Use(chimw.RealIP)
+	r.Use(mw.TrustedRealIP(cfg))
 	r.Use(chimw.RequestID)
 	r.Use(mw.RequestLogger(logger))
 	r.Use(chimw.Recoverer)
@@ -87,11 +87,15 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	// the logged-out landing page.
 	r.Get("/", h.Home)
 
-	// Unauthenticated image access: GET /{id} and GET /{id}.png are
-	// rate-limited — the limit applies to every request including 404s to
-	// prevent ID enumeration by unauthenticated scrapers.
+	// Image view routes. GET /{id} and GET /{id}.png are rate-limited — the
+	// limit applies to every request including 404s to prevent ID enumeration
+	// by unauthenticated scrapers. When Server.RequireAuthToView is set,
+	// these routes additionally require an authenticated session.
 	r.Group(func(r chi.Router) {
 		r.Use(rlMiddleware)
+		if cfg.Server.RequireAuthToView {
+			r.Use(auth.RequireAuth(cfg))
+		}
 		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.View)
 		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}.png", cfg.ID.Length), h.ServeImage)
 	})
@@ -100,7 +104,11 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth(cfg))
 
-		r.Post("/upload", h.Upload)
+		// /upload accepts multipart/form-data (a CORS "simple" content type
+		// that is not preflighted), so the server must verify the Origin
+		// header to block CSRF from third-party sites exploiting the
+		// SameSite=None session cookie.
+		r.With(mw.RequireSameOriginOrExtension(cfg)).Post("/upload", h.Upload)
 		r.Get("/static/font.ttf", h.ServeFont)
 
 		r.Patch(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Update)
