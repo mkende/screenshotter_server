@@ -116,7 +116,7 @@
     const fd = new FormData();
     fd.append('image', blob, 'upload.png');
     try {
-      const resp = await fetch('/upload', {method: 'POST', body: fd});
+      const resp = await fetch('/upload', {method: 'POST', headers: {'X-Screenshotter-Request': '1'}, body: fd});
       const data = await resp.json();
       if (!resp.ok) { showStatus('Upload failed: ' + (data.error || resp.statusText), 'is-danger'); return; }
       showStatus('Uploaded! Redirecting\u2026', 'is-success');

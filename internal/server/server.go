@@ -107,6 +107,7 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	// Routes that require authentication.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth(cfg))
+		r.Use(mw.RequireMutationHeader)
 
 		// /upload accepts multipart/form-data (a CORS "simple" content type
 		// that is not preflighted), so the server must verify the Origin
@@ -178,7 +179,7 @@ func corsMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
 				if r.Method == http.MethodOptions {
 					w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 					w.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
-						"Content-Type", "Accept",
+						"Content-Type", "Accept", mw.MutationHeader,
 					}, ", "))
 					w.Header().Set("Access-Control-Max-Age", "86400")
 					w.WriteHeader(http.StatusNoContent)

@@ -185,7 +185,7 @@ function copyText(text, btn) {
 
 function deleteImage(id) {
   if (!confirm('Delete this screenshot? This cannot be undone.')) return;
-  fetch('/' + id, { method: 'DELETE', credentials: 'same-origin' })
+  fetch('/' + id, { method: 'DELETE', credentials: 'same-origin', headers: {'X-Screenshotter-Request': '1'} })
     .then(r => {
       if (r.ok) { window.location.href = '/'; }
       else { return r.json().then(j => { alert('Delete failed: ' + (j.error || r.status)); }); }
@@ -211,7 +211,7 @@ function saveEdit(e) {
   fetch('/{{.Image.ID}}', {
     method: 'PATCH',
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Screenshotter-Request': '1' },
     body: JSON.stringify({ title, source_url: sourceURL }),
   }).then(r => {
     if (r.ok) { window.location.reload(); }
