@@ -322,7 +322,7 @@ func defaults() *Config {
 		},
 		ID:          IDConfig{Length: 8},
 		Home:        HomeConfig{Cols: 5, PageSize: 20},
-		RateLimit:   RateLimitConfig{RequestsPerSecond: 5, RequestsPerMinute: 50},
+		RateLimit:   RateLimitConfig{RequestsPerSecond: 6, RequestsPerMinute: 60},
 		ProxyAuth: ProxyAuthConfig{
 			UserHeader:   "Remote-User",
 			EmailHeader:  "Remote-Email",

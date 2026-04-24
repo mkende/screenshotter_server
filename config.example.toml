@@ -126,10 +126,10 @@ dsn = "/var/lib/screenshotter/db.sqlite"
 # ---------------------------------------------------------------------------
 
 [ratelimit]
-# Maximum requests per IP per second. Default: 5. Set to 0 to disable.
-# requests_per_second = 5
-# Maximum requests per IP per minute. Default: 50. Set to 0 to disable.
-# requests_per_minute = 50
+# Maximum requests per IP per second. Default: 6. Set to 0 to disable.
+# requests_per_second = 6
+# Maximum requests per IP per minute. Default: 60. Set to 0 to disable.
+# requests_per_minute = 60
 
 # ---------------------------------------------------------------------------
 # Authentication

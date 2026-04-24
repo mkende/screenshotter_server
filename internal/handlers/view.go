@@ -14,6 +14,7 @@ type viewData struct {
 	Image      *db.Image
 	IsOwner    bool
 	CurrentURL string
+	ImageURL   string
 }
 
 // View renders the HTML view page for a single image. Accessible to
@@ -39,5 +40,6 @@ func (h *Handlers) View(w http.ResponseWriter, r *http.Request) {
 		Image:      img,
 		IsOwner:    isOwner,
 		CurrentURL: h.cfg.CanonicalAddress + "/" + id,
+		ImageURL:   h.cfg.CanonicalAddress + "/" + id + ".png",
 	})
 }

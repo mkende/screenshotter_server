@@ -5,6 +5,13 @@
 {{define "container-class"}}is-fluid{{end}}
 
 {{define "head"}}
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{.CurrentURL}}">
+<meta property="og:title" content="{{if .Image.Title}}{{.Image.Title}}{{else}}Unnamed screenshot{{end}}">
+<meta property="og:image" content="{{.ImageURL}}">
+{{if .Image.SourceURL}}<meta property="og:description" content="{{.Image.SourceURL}}">{{end}}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="{{.ImageURL}}">
 <style>
   /* Override Bulma's flex-shrink: 0 on navbar-menu so the meta area can shrink
      when the URL is long, keeping the action buttons always visible. */
