@@ -1,7 +1,7 @@
 name: Tag release
 
-# Creates a vX.Y.Z git tag whenever the VERSION file changes on main,
-# but only after the Test workflow has completed successfully.
+# Creates a vX.Y.Z git tag from the VERSION file on main whenever the Test
+# workflow completes successfully, if that tag does not already exist.
 # That tag then triggers the Docker workflow to build and publish the image.
 
 on:
@@ -23,22 +23,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Check if VERSION changed
-        id: changed
-        run: |
-          if git diff --name-only HEAD~1 HEAD | grep -qx 'VERSION'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Read version
-        if: steps.changed.outputs.changed == 'true'
         id: version
         run: echo "value=v$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Check tag does not already exist
-        if: steps.changed.outputs.changed == 'true'
         id: check
         run: |
           if git rev-parse "${{ steps.version.outputs.value }}" >/dev/null 2>&1; then
@@ -48,7 +37,7 @@ jobs:
           fi
 
       - name: Create and push tag
-        if: steps.changed.outputs.changed == 'true' && steps.check.outputs.exists == 'false'
+        if: steps.check.outputs.exists == 'false'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
