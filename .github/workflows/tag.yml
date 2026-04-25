@@ -1,0 +1,56 @@
+name: Tag release
+
+# Creates a vX.Y.Z git tag whenever the VERSION file changes on main,
+# but only after the Test workflow has completed successfully.
+# That tag then triggers the Docker workflow to build and publish the image.
+
+on:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  tag:
+    name: Create version tag
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Check if VERSION changed
+        id: changed
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -qx 'VERSION'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read version
+        if: steps.changed.outputs.changed == 'true'
+        id: version
+        run: echo "value=v$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag does not already exist
+        if: steps.changed.outputs.changed == 'true'
+        id: check
+        run: |
+          if git rev-parse "${{ steps.version.outputs.value }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.changed.outputs.changed == 'true' && steps.check.outputs.exists == 'false'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.value }}"
+          git push origin "${{ steps.version.outputs.value }}"

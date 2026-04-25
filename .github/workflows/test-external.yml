@@ -1,0 +1,49 @@
+name: Test (external PR)
+
+# Runs the test suite for PRs from external contributors after a maintainer
+# adds the 'safe-to-test' label. Uses pull_request_target so it can be
+# triggered from forks, but explicitly checks out the PR head SHA so the
+# contributor's code is what gets tested.
+#
+# SECURITY NOTE: This workflow intentionally uses no repository secrets.
+# If secrets are ever added to the test suite, review this file carefully
+# before keeping it — pull_request_target runs with base-branch permissions.
+
+on:
+  pull_request_target:
+    types: [labeled]
+    branches: [main]
+
+jobs:
+  server:
+    name: Run server tests (external PR)
+    runs-on: ubuntu-latest
+    # Only run when the approval label is added, and only for contributors who
+    # are not already trusted (OWNER/MEMBER/COLLABORATOR run via test.yml).
+    if: |
+      github.event.label.name == 'safe-to-test' &&
+      !contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
+    permissions:
+      contents: read
+    steps:
+      # Check out the PR contributor's code, not the base branch.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Cache embedded-postgres binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.embedded-postgres-go
+          key: embedded-postgres-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...

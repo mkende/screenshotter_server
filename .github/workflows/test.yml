@@ -1,0 +1,39 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  server:
+    name: Go server tests
+    runs-on: ubuntu-latest
+    # On PRs, only run automatically for repo owners, members, and collaborators.
+    # External contributors' PRs require a maintainer to add the 'safe-to-test'
+    # label (handled by test-external.yml). This prevents CI abuse from forks.
+    if: |
+      github.event_name == 'push' ||
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Cache embedded-postgres binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.embedded-postgres-go
+          key: embedded-postgres-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
