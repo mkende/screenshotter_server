@@ -52,7 +52,7 @@ func openTestDB(t *testing.T) *db.DB {
 // handlers' renderTemplate calls without needing the embedded FS.
 func minimalTemplates() map[string]*template.Template {
 	const stub = `{{define "base"}}OK{{end}}`
-	pages := []string{"home.html", "home-loggedout.html", "view.html", "annotate.html"}
+	pages := []string{"home.html", "home-loggedout.html", "view.html", "annotate.html", "admin-users.html", "admin-user-detail.html"}
 	m := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		m[p] = template.Must(template.New("").Parse(stub))
