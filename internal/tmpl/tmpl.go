@@ -20,7 +20,7 @@ var FontTTF []byte
 func Parse() (map[string]*template.Template, error) {
 	out := make(map[string]*template.Template)
 
-	for _, page := range []string{"home.html", "home-loggedout.html", "view.html"} {
+	for _, page := range []string{"home.html", "home-loggedout.html", "view.html", "admin-users.html", "admin-user-detail.html"} {
 		t, err := template.New("").ParseFS(files, "base.html", page)
 		if err != nil {
 			return nil, fmt.Errorf("parse template %q: %w", page, err)

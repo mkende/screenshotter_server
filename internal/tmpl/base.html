@@ -17,6 +17,11 @@
       {{block "navbar-start" .}}{{end}}
       <div class="navbar-end">
         {{block "navbar-end" .}}{{end}}
+        {{if and .User .User.IsAdmin}}
+        <div class="navbar-item">
+          <a class="button is-warning is-small" href="/admin">Admin</a>
+        </div>
+        {{end}}
         {{if .User}}
         <div class="navbar-item">
           <span class="has-text-grey">{{.User.DisplayName}}</span>

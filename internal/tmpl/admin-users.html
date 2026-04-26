@@ -1,0 +1,120 @@
+{{template "base" .}}
+
+{{define "title"}}Admin — {{.Title}}{{end}}
+
+{{define "content"}}
+<h1 class="title is-4">
+  <span class="icon-text">
+    <span class="icon"><i class="fas fa-users-cog"></i></span>
+    <span>Admin — Users</span>
+  </span>
+</h1>
+
+<form method="GET" action="/admin" class="mb-5">
+  <div class="field has-addons">
+    <div class="control is-expanded">
+      <input class="input" type="text" name="q" value="{{.Query}}"
+        placeholder="Search by email or display name" autocomplete="off">
+    </div>
+    <div class="control">
+      <button class="button is-link" type="submit">
+        <span class="icon"><i class="fas fa-search"></i></span>
+        <span>Search</span>
+      </button>
+    </div>
+    {{if .Query}}
+    <div class="control">
+      <a class="button" href="/admin">Clear</a>
+    </div>
+    {{end}}
+  </div>
+</form>
+
+<p class="is-size-7 has-text-grey mb-3">
+  {{.Total}} user{{if ne .Total 1}}s{{end}}{{if .Query}} matching &#34;{{.Query}}&#34;{{end}}
+</p>
+
+{{if .Users}}
+<div class="table-container">
+  <table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Screenshots</th>
+        <th>Joined</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Users}}
+      <tr>
+        <td style="width:40px;vertical-align:middle">
+          {{if .AvatarURL}}
+          <figure class="image is-32x32">
+            <img class="is-rounded" src="{{.AvatarURL}}" alt="" referrerpolicy="no-referrer">
+          </figure>
+          {{end}}
+        </td>
+        <td style="vertical-align:middle">{{.DisplayName}}</td>
+        <td style="vertical-align:middle"><code>{{.Email}}</code></td>
+        <td style="vertical-align:middle">{{.ImageCount}}</td>
+        <td style="vertical-align:middle">
+          <span class="is-size-7">{{.CreatedAt.Format "2006-01-02"}}</span>
+        </td>
+        <td style="vertical-align:middle">
+          <div class="buttons are-small">
+            <a class="button" href="/admin/users/{{.Email}}">Details</a>
+            <button class="button is-danger is-outlined"
+              data-email="{{.Email}}"
+              data-name="{{.DisplayName}}"
+              data-count="{{.ImageCount}}"
+              onclick="deleteUser(this)">Delete</button>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+{{if or .HasPrev .HasNext}}
+<nav class="pagination is-centered mt-5" role="navigation" aria-label="pagination">
+  {{if .HasPrev}}
+  <a class="pagination-previous" href="/admin?page={{.PrevPage}}&amp;q={{.Query | urlquery}}">&#8592; Previous</a>
+  {{else}}
+  <a class="pagination-previous" disabled>&#8592; Previous</a>
+  {{end}}
+  {{if .HasNext}}
+  <a class="pagination-next" href="/admin?page={{.NextPage}}&amp;q={{.Query | urlquery}}">Next &#8594;</a>
+  {{else}}
+  <a class="pagination-next" disabled>Next &#8594;</a>
+  {{end}}
+</nav>
+{{end}}
+
+{{else}}
+<p class="has-text-grey">No users found{{if .Query}} matching &#34;{{.Query}}&#34;{{end}}.</p>
+{{end}}
+
+<script nonce="{{.Nonce}}">
+async function deleteUser(btn) {
+  const email = btn.dataset.email;
+  const name = btn.dataset.name;
+  const count = parseInt(btn.dataset.count, 10);
+  const noun = count === 1 ? '1 screenshot' : count + ' screenshots';
+  if (!confirm('Delete user "' + name + '" (' + email + ') and their ' + noun + '?\n\nThis cannot be undone.')) return;
+  const resp = await fetch('/admin/users/' + encodeURIComponent(email), {
+    method: 'DELETE',
+    headers: {'X-Screenshotter-Request': '1'},
+  });
+  if (resp.ok) {
+    window.location.reload();
+  } else {
+    const data = await resp.json().catch(() => ({}));
+    alert('Error: ' + (data.error || resp.statusText));
+  }
+}
+</script>
+{{end}}

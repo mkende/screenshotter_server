@@ -91,6 +91,28 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	// the logged-out landing page.
 	r.Get("/", h.Home)
 
+	// Admin routes: require admin privileges. Non-admin HTML requests receive
+	// a 403; non-admin API requests receive a 403 JSON error.
+	adminDenied := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := auth.FromContext(r.Context())
+		if id == nil && cfg.OIDC.Enabled {
+			auth.LoginRedirect(w, r)
+			return
+		}
+		http.Error(w, "forbidden: admin privileges required", http.StatusForbidden)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAdmin(adminDenied))
+		r.Use(mw.RequireMutationHeader)
+
+		r.Get("/admin", h.AdminUsers)
+		r.Get("/admin/users/{email}", h.AdminUserDetail)
+		r.Delete("/admin/users/{email}", h.AdminDeleteUser)
+		r.Post("/admin/users/{email}/reassign-all", h.AdminReassignAll)
+		r.Delete("/admin/images/{id}", h.AdminDeleteImage)
+		r.Post("/admin/images/{id}/reassign", h.AdminReassignImage)
+	})
+
 	// Image view routes. GET /{id} and GET /{id}.png are rate-limited — the
 	// limit applies to every request including 404s to prevent ID enumeration
 	// by unauthenticated scrapers. When Server.RequireAuthToView is set,

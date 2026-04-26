@@ -1,0 +1,213 @@
+{{template "base" .}}
+
+{{define "title"}}Admin: {{.TargetUser.DisplayName}} — {{.Title}}{{end}}
+
+{{define "content"}}
+<nav class="breadcrumb" aria-label="breadcrumbs">
+  <ul>
+    <li><a href="/admin">Admin</a></li>
+    <li class="is-active"><a>{{.TargetUser.DisplayName}}</a></li>
+  </ul>
+</nav>
+
+<div class="box mb-5">
+  <div class="media">
+    {{if .TargetUser.AvatarURL}}
+    <div class="media-left">
+      <figure class="image is-64x64">
+        <img class="is-rounded" src="{{.TargetUser.AvatarURL}}" alt="" referrerpolicy="no-referrer">
+      </figure>
+    </div>
+    {{end}}
+    <div class="media-content">
+      <p class="title is-5">{{.TargetUser.DisplayName}}</p>
+      <p class="subtitle is-6"><code>{{.TargetUser.Email}}</code></p>
+      <p class="is-size-7 has-text-grey">
+        Joined {{.TargetUser.CreatedAt.Format "Jan 2, 2006"}}
+        &mdash;
+        <span id="image-count"><strong>{{.TargetUser.ImageCount}}</strong></span>
+        screenshot{{if ne .TargetUser.ImageCount 1}}s{{end}}
+      </p>
+    </div>
+    <div class="media-right">
+      <button class="button is-danger"
+        data-email="{{.TargetUser.Email}}"
+        data-name="{{.TargetUser.DisplayName}}"
+        data-count="{{.TargetUser.ImageCount}}"
+        onclick="deleteUser(this)">
+        <span class="icon"><i class="fas fa-trash"></i></span>
+        <span>Delete user</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+{{if gt .TargetUser.ImageCount 0}}
+<div class="box mb-5">
+  <h3 class="title is-6 mb-3">Bulk reassign all screenshots</h3>
+  <div class="field has-addons">
+    <div class="control is-expanded">
+      <input id="reassign-all-to" class="input" type="email"
+        placeholder="Target user email (must already exist)">
+    </div>
+    <div class="control">
+      <button class="button is-info"
+        data-email="{{.TargetUser.Email}}"
+        data-count="{{.TargetUser.ImageCount}}"
+        onclick="reassignAll(this)">
+        Reassign all {{.TargetUser.ImageCount}} screenshots
+      </button>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{if .Images}}
+<div class="table-container">
+  <table class="table is-fullwidth is-striped is-hoverable">
+    <thead>
+      <tr>
+        <th>Thumbnail</th>
+        <th>Created</th>
+        <th>Title / URL</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Images}}
+      <tr id="row-{{.ID}}">
+        <td style="width:80px;vertical-align:middle">
+          <a href="/{{.ID}}">
+            <img src="/thumb/{{.ID}}.png" alt="thumbnail"
+              style="height:45px;width:80px;object-fit:cover;border-radius:3px;display:block">
+          </a>
+        </td>
+        <td style="vertical-align:middle;white-space:nowrap">
+          <span class="is-size-7">{{.CreatedAt.Format "2006-01-02 15:04"}}</span>
+        </td>
+        <td style="vertical-align:middle;max-width:300px">
+          <span class="is-size-7">
+            {{if .Title}}<strong>{{.Title}}</strong>{{if .SourceURL}}<br>{{end}}{{end}}
+            {{if .SourceURL}}<span class="has-text-grey" title="{{.SourceURL}}">{{.SourceURL}}</span>{{end}}
+            {{if not .Title}}{{if not .SourceURL}}<span class="has-text-grey-light">(unnamed)</span>{{end}}{{end}}
+          </span>
+        </td>
+        <td style="vertical-align:middle">
+          <div class="field has-addons">
+            <div class="control">
+              <input class="input is-small" type="email"
+                placeholder="Reassign to email"
+                id="reassign-input-{{.ID}}"
+                style="width:200px">
+            </div>
+            <div class="control">
+              <button class="button is-small is-info"
+                data-id="{{.ID}}"
+                onclick="reassignImage(this)">Reassign</button>
+            </div>
+            <div class="control">
+              <button class="button is-small is-danger is-outlined"
+                data-id="{{.ID}}"
+                onclick="deleteImage(this)">Delete</button>
+            </div>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+{{if or .HasPrev .HasNext}}
+<nav class="pagination is-centered mt-4" role="navigation" aria-label="pagination">
+  {{if .HasPrev}}
+  <a class="pagination-previous" href="/admin/users/{{.TargetUser.Email}}?page={{.PrevPage}}">&#8592; Previous</a>
+  {{else}}
+  <a class="pagination-previous" disabled>&#8592; Previous</a>
+  {{end}}
+  {{if .HasNext}}
+  <a class="pagination-next" href="/admin/users/{{.TargetUser.Email}}?page={{.NextPage}}">Next &#8594;</a>
+  {{else}}
+  <a class="pagination-next" disabled>Next &#8594;</a>
+  {{end}}
+</nav>
+{{end}}
+
+{{else}}
+<p class="has-text-grey">No screenshots.</p>
+{{end}}
+
+<script nonce="{{.Nonce}}">
+async function deleteUser(btn) {
+  const email = btn.dataset.email;
+  const name = btn.dataset.name;
+  const count = parseInt(btn.dataset.count, 10);
+  const noun = count === 1 ? '1 screenshot' : count + ' screenshots';
+  if (!confirm('Delete user "' + name + '" (' + email + ') and their ' + noun + '?\n\nThis cannot be undone.')) return;
+  const resp = await fetch('/admin/users/' + encodeURIComponent(email), {
+    method: 'DELETE',
+    headers: {'X-Screenshotter-Request': '1'},
+  });
+  if (resp.ok) {
+    window.location.href = '/admin';
+  } else {
+    const data = await resp.json().catch(() => ({}));
+    alert('Error: ' + (data.error || resp.statusText));
+  }
+}
+
+async function reassignAll(btn) {
+  const email = btn.dataset.email;
+  const count = parseInt(btn.dataset.count, 10);
+  const to = document.getElementById('reassign-all-to').value.trim();
+  if (!to) { alert('Enter a target email address.'); return; }
+  const noun = count === 1 ? '1 screenshot' : count + ' screenshots';
+  if (!confirm('Reassign ' + noun + ' from ' + email + ' to ' + to + '?')) return;
+  const resp = await fetch('/admin/users/' + encodeURIComponent(email) + '/reassign-all', {
+    method: 'POST',
+    headers: {'X-Screenshotter-Request': '1', 'Content-Type': 'application/json'},
+    body: JSON.stringify({to}),
+  });
+  if (resp.ok) {
+    window.location.reload();
+  } else {
+    const data = await resp.json().catch(() => ({}));
+    alert('Error: ' + (data.error || resp.statusText));
+  }
+}
+
+async function reassignImage(btn) {
+  const id = btn.dataset.id;
+  const input = document.getElementById('reassign-input-' + id);
+  const to = input.value.trim();
+  if (!to) { alert('Enter a target email address.'); return; }
+  const resp = await fetch('/admin/images/' + id + '/reassign', {
+    method: 'POST',
+    headers: {'X-Screenshotter-Request': '1', 'Content-Type': 'application/json'},
+    body: JSON.stringify({to}),
+  });
+  if (resp.ok) {
+    window.location.reload();
+  } else {
+    const data = await resp.json().catch(() => ({}));
+    alert('Error: ' + (data.error || resp.statusText));
+  }
+}
+
+async function deleteImage(btn) {
+  const id = btn.dataset.id;
+  if (!confirm('Delete this screenshot? This cannot be undone.')) return;
+  const resp = await fetch('/admin/images/' + id, {
+    method: 'DELETE',
+    headers: {'X-Screenshotter-Request': '1'},
+  });
+  if (resp.ok) {
+    const row = document.getElementById('row-' + id);
+    if (row) row.remove();
+  } else {
+    const data = await resp.json().catch(() => ({}));
+    alert('Error: ' + (data.error || resp.statusText));
+  }
+}
+</script>
+{{end}}

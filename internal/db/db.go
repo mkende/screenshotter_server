@@ -246,6 +246,139 @@ func (d *DB) DeleteImage(ctx context.Context, id, ownerID string) (bool, error) 
 	return n > 0, nil
 }
 
+// UserWithStats embeds User with an aggregate image count.
+type UserWithStats struct {
+	User
+	ImageCount int
+}
+
+// ListUsers returns users matching search (case-insensitive substring of email
+// or display name), ordered by creation date descending and paginated.
+// total is the count of all matching users (before pagination).
+// Pass limit+1 and check len to detect a next page.
+func (d *DB) ListUsers(ctx context.Context, search string, limit, offset int) (users []UserWithStats, total int, err error) {
+	escaped := strings.NewReplacer(`%`, `\%`, `_`, `\_`).Replace(search)
+	pattern := "%" + strings.ToLower(escaped) + "%"
+
+	countQ := d.q(`SELECT COUNT(*) FROM users WHERE lower(id) LIKE ? ESCAPE '\' OR lower(display_name) LIKE ? ESCAPE '\'`)
+	if err = d.sql.QueryRowContext(ctx, countQ, pattern, pattern).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count users: %w", err)
+	}
+
+	listQ := d.q(`
+		SELECT u.id, u.display_name, u.avatar_url, u.created_at, COUNT(i.id) AS image_count
+		FROM users u
+		LEFT JOIN images i ON i.owner_id = u.id
+		WHERE lower(u.id) LIKE ? ESCAPE '\' OR lower(u.display_name) LIKE ? ESCAPE '\'
+		GROUP BY u.id
+		ORDER BY u.created_at DESC
+		LIMIT ? OFFSET ?`)
+	rows, err := d.sql.QueryContext(ctx, listQ, pattern, pattern, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u UserWithStats
+		if err = rows.Scan(&u.Email, &u.DisplayName, &u.AvatarURL, &u.CreatedAt, &u.ImageCount); err != nil {
+			return nil, 0, fmt.Errorf("scan user: %w", err)
+		}
+		users = append(users, u)
+	}
+	return users, total, rows.Err()
+}
+
+// GetUserWithStats returns a user by email with their image count, or (nil, nil) if not found.
+func (d *DB) GetUserWithStats(ctx context.Context, email string) (*UserWithStats, error) {
+	u := &UserWithStats{}
+	err := d.sql.QueryRowContext(ctx, d.q(`
+		SELECT u.id, u.display_name, u.avatar_url, u.created_at, COUNT(i.id) AS image_count
+		FROM users u
+		LEFT JOIN images i ON i.owner_id = u.id
+		WHERE u.id = ?
+		GROUP BY u.id`), email).
+		Scan(&u.Email, &u.DisplayName, &u.AvatarURL, &u.CreatedAt, &u.ImageCount)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get user with stats: %w", err)
+	}
+	return u, nil
+}
+
+// ReassignImage changes the owner of imageID to newOwnerEmail without checking
+// the current owner. Returns false if the image does not exist.
+func (d *DB) ReassignImage(ctx context.Context, imageID, newOwnerEmail string) (bool, error) {
+	res, err := d.sql.ExecContext(ctx,
+		d.q(`UPDATE images SET owner_id = ? WHERE id = ?`),
+		newOwnerEmail, imageID)
+	if err != nil {
+		return false, fmt.Errorf("reassign image: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// ReassignAllImages moves every image owned by fromEmail to toEmail and
+// returns the number of images moved.
+func (d *DB) ReassignAllImages(ctx context.Context, fromEmail, toEmail string) (int64, error) {
+	res, err := d.sql.ExecContext(ctx,
+		d.q(`UPDATE images SET owner_id = ? WHERE owner_id = ?`),
+		toEmail, fromEmail)
+	if err != nil {
+		return 0, fmt.Errorf("reassign all images: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// AdminDeleteImage removes an image by ID without checking ownership.
+// Returns false if the image was not found.
+func (d *DB) AdminDeleteImage(ctx context.Context, id string) (bool, error) {
+	res, err := d.sql.ExecContext(ctx,
+		d.q(`DELETE FROM images WHERE id = ?`), id)
+	if err != nil {
+		return false, fmt.Errorf("admin delete image: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// ListImageIDsByOwner returns all image IDs belonging to email.
+// Used to collect IDs for storage cleanup before deleting a user.
+func (d *DB) ListImageIDsByOwner(ctx context.Context, email string) ([]string, error) {
+	rows, err := d.sql.QueryContext(ctx,
+		d.q(`SELECT id FROM images WHERE owner_id = ?`), email)
+	if err != nil {
+		return nil, fmt.Errorf("list image ids: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan image id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// DeleteUser removes a user by email. The ON DELETE CASCADE constraint
+// automatically removes all their images from the DB. Callers must call
+// ListImageIDsByOwner first and clean up storage files afterwards.
+// Returns false if the user was not found.
+func (d *DB) DeleteUser(ctx context.Context, email string) (bool, error) {
+	res, err := d.sql.ExecContext(ctx,
+		d.q(`DELETE FROM users WHERE id = ?`), email)
+	if err != nil {
+		return false, fmt.Errorf("delete user: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // ListRecentImages returns up to limit images for ownerID starting at the given
 // offset, ordered newest first. Pass limit+1 and check len to detect a next page.
 func (d *DB) ListRecentImages(ctx context.Context, ownerID string, limit, offset int) ([]Image, error) {

@@ -33,7 +33,7 @@ func (h *Handlers) ServeThumb(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if identity == nil || img.OwnerID != identity.Email {
+	if identity == nil || (img.OwnerID != identity.Email && !identity.IsAdmin) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
