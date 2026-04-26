@@ -12,8 +12,13 @@
   <nav class="navbar is-white has-shadow" role="navigation" aria-label="main navigation">
     <div class="navbar-brand">
       <a class="navbar-item has-text-weight-semibold is-size-5" href="/">{{.Title}}</a>
+      <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMenu">
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+        <span aria-hidden="true"></span>
+      </a>
     </div>
-    <div class="navbar-menu">
+    <div id="navbarMenu" class="navbar-menu">
       {{block "navbar-start" .}}{{end}}
       <div class="navbar-end">
         {{block "navbar-end" .}}{{end}}
@@ -51,6 +56,17 @@
       {{.Version}}
     </div>
   </footer>
+<script nonce="{{.Nonce}}">
+(function() {
+  var burger = document.querySelector('.navbar-burger');
+  if (!burger) return;
+  burger.addEventListener('click', function() {
+    var menu = document.getElementById(burger.dataset.target);
+    burger.classList.toggle('is-active');
+    if (menu) menu.classList.toggle('is-active');
+  });
+}());
+</script>
 </body>
 </html>
 {{end}}

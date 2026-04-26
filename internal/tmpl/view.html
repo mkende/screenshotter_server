@@ -164,6 +164,18 @@
       <span>Delete</span>
     </button>
     {{end}}
+    {{if and .User .User.IsAdmin}}
+    {{if not .IsOwner}}
+    <button id="btn-admin-delete" class="button is-danger is-small" data-image-id="{{.Image.ID}}">
+      <span class="icon is-small"><i class="fa fa-trash"></i></span>
+      <span>Delete</span>
+    </button>
+    {{end}}
+    <a class="button is-warning is-small" href="/admin/users/{{.Image.OwnerID}}">
+      <span class="icon is-small"><i class="fa fa-users-cog"></i></span>
+      <span>Manage</span>
+    </a>
+    {{end}}
   </div>
 </div>
 {{end}}
@@ -254,6 +266,20 @@ function saveEdit(e) {
   if (btnDelete) {
     btnDelete.addEventListener('click', function () {
       deleteImage(btnDelete.dataset.imageId);
+    });
+  }
+
+  var btnAdminDelete = document.getElementById('btn-admin-delete');
+  if (btnAdminDelete) {
+    btnAdminDelete.addEventListener('click', function () {
+      var id = btnAdminDelete.dataset.imageId;
+      if (!confirm('Delete this screenshot? This cannot be undone.')) return;
+      fetch('/admin/images/' + id, {method: 'DELETE', credentials: 'same-origin', headers: {'X-Screenshotter-Request': '1'}})
+        .then(function(r) {
+          if (r.ok) { window.location.href = '/'; }
+          else { return r.json().then(function(j) { alert('Delete failed: ' + (j.error || r.status)); }); }
+        })
+        .catch(function() { alert('Network error while deleting.'); });
     });
   }
 }());
