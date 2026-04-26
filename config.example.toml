@@ -103,8 +103,9 @@ storage_path = "/var/lib/screenshotter/images"
 
 [cors]
 # Chrome extension IDs allowed to make credentialed cross-origin requests.
-# Multiple IDs can be listed (e.g. dev + production builds).
-extension_ids = ["<your-extension-id-here>"]
+# Multiple IDs can be listed (e.g. dev + production builds). The default below
+# matches the screenshotter Chrome extension.
+extension_ids = ["nnipkgjcfgekggpkclhdghbbfnpokdlg"]
 
 # ---------------------------------------------------------------------------
 # Database
