@@ -85,6 +85,18 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 		r.Get("/auth/login", oidcHandler.HandleLogin)
 		r.Get("/auth/callback", oidcHandler.HandleCallback)
 		r.Get("/auth/logout", oidcHandler.HandleLogout)
+		// /auth/done is the post-login destination for the Chrome extension's
+		// OIDC flow. It closes its own tab so the user is returned to the crop
+		// page automatically.
+		r.Get("/auth/done", func(w http.ResponseWriter, r *http.Request) {
+			nonce := mw.NonceFromContext(r.Context())
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, //nolint:errcheck
+				"<!doctype html>\n<html lang=\"en\">\n<head><title>Logged in</title></head>\n"+
+					"<body>\n<script nonce=\"%s\">window.close();</script>\n"+
+					"<p>Login successful. You may close this tab.</p>\n</body>\n</html>",
+				nonce)
+		})
 	}
 
 	// Home page: optional auth — logged-in users see their gallery; others see

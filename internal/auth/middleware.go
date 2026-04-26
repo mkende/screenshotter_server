@@ -62,7 +62,7 @@ func RequireAuth(cfg *config.Config) func(http.Handler) http.Handler {
 			}
 			if isAPIRequest(r) {
 				if cfg.OIDC.Enabled {
-					loginURL := strings.TrimRight(cfg.CanonicalAddress, "/") + "/auth/login"
+					loginURL := strings.TrimRight(cfg.CanonicalAddress, "/") + "/auth/login?rd=/auth/done"
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusUnauthorized)
 					json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
