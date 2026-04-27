@@ -56,7 +56,6 @@ storage_path = "/var/lib/screenshotter/images"
 # Optional directory of static assets served by the server. When set,
 # /favicon.ico is served from <assets_path>/favicon.ico (unless overridden
 # by the top-level favicon_path).
-# Generate the favicon by running: node shared/generate-icons.js
 # assets_path = "/var/lib/screenshotter/assets"
 
 # When true, GET /{id} and GET /{id}.png require an authenticated session.
