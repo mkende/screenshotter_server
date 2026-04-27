@@ -203,6 +203,14 @@
   let drawStart = null;
   let activeObj = null;  // object being drawn (preview)
   let leaving = false;  // set true before intentional navigation to suppress beforeunload
+  // Selection-edit state: tracks ambient color/stroke before an object is selected
+  // so they can be restored (unless changed) when the object is deselected.
+  let selectedObj = null;
+  let savedColor = null;    // ambient color when selection started
+  let savedStroke = null;   // ambient stroke when selection started
+  let colorChangedDuringSel = false;
+  let strokeChangedDuringSel = false;
+  let rebuildingArrow = false;  // suppress selection events during arrow rebuild
 
   // ── Canvas init ──────────────────────────────────────
   const canvas = new fabric.Canvas('c', {
@@ -246,11 +254,13 @@
 
   // ── History ──────────────────────────────────────────
   function pushHistory() {
-    history.push(canvas.toJSON(['isBackground']));
+    history.push(canvas.toJSON(['isBackground', 'arrowX1', 'arrowY1', 'arrowX2', 'arrowY2', 'arrowLeft0', 'arrowTop0']));
   }
 
   function undo() {
     if (history.length <= 1) return;
+    restoreToolbarIfNeeded();
+    selectedObj = null;
     history.pop();
     canvas.loadFromJSON(history[history.length - 1], function () {
       canvas.forEachObject(function (obj) {
@@ -264,6 +274,10 @@
 
   // ── Tool management ──────────────────────────────────
   function setTool(tool) {
+    if (currentTool === 'select' && tool !== 'select') {
+      restoreToolbarIfNeeded();
+      selectedObj = null;
+    }
     currentTool = tool;
     canvas.isDrawingMode = false;
     canvas.selection = (tool === 'select');
@@ -285,22 +299,26 @@
     setCookie('annotate_tool', tool);
   }
 
-  function setColor(color, btn) {
+  function setColor(color) {
     currentColor = color;
-    document.querySelectorAll('.swatch').forEach(function (s) {
-      s.classList.remove('is-active');
-    });
-    btn.classList.add('is-active');
+    showColorInToolbar(color);
     setCookie('annotate_color', color);
+    if (selectedObj) {
+      colorChangedDuringSel = true;
+      applyColorToObject(selectedObj, color);
+      pushHistory();
+    }
   }
 
-  function setStroke(w, btn) {
+  function setStroke(w) {
     currentStroke = w;
-    document.querySelectorAll('.stroke-btn').forEach(function (s) {
-      s.classList.remove('is-active');
-    });
-    btn.classList.add('is-active');
+    showStrokeInToolbar(w);
     setCookie('annotate_stroke', String(w));
+    if (selectedObj) {
+      strokeChangedDuringSel = true;
+      selectedObj = applyStrokeToObject(selectedObj, w);
+      pushHistory();
+    }
   }
 
   // ── Wire toolbar buttons ─────────────────────────────
@@ -308,10 +326,10 @@
     btn.addEventListener('click', function () { setTool(btn.dataset.tool); });
   });
   document.querySelectorAll('.swatch[data-color]').forEach(function (swatch) {
-    swatch.addEventListener('click', function () { setColor(swatch.dataset.color, swatch); });
+    swatch.addEventListener('click', function () { setColor(swatch.dataset.color); });
   });
   document.querySelectorAll('.stroke-btn[data-sw]').forEach(function (btn) {
-    btn.addEventListener('click', function () { setStroke(parseInt(btn.dataset.sw, 10), btn); });
+    btn.addEventListener('click', function () { setStroke(parseInt(btn.dataset.sw, 10)); });
   });
   document.getElementById('undo-btn').addEventListener('click', undo);
   document.getElementById('cancel-btn').addEventListener('click', cancelAnnotate);
@@ -326,13 +344,13 @@
     var color = getCookie('annotate_color');
     if (color) {
       var swatch = document.querySelector('.swatch[data-color="' + color + '"]');
-      if (swatch) setColor(color, swatch);
+      if (swatch) setColor(color);
     }
     var stroke = getCookie('annotate_stroke');
     if (stroke) {
       var sw = parseInt(stroke, 10);
       var strokeBtn = document.querySelector('.stroke-btn[data-sw="' + sw + '"]');
-      if (strokeBtn) setStroke(sw, strokeBtn);
+      if (strokeBtn) setStroke(sw);
     }
   }());
 
@@ -362,7 +380,112 @@
       selectable: false, evented: false,
     });
 
-    return new fabric.Group([line, head], { selectable: true, evented: true });
+    var group = new fabric.Group([line, head], { selectable: true, evented: true });
+    // Store arrow endpoints so they can be used when rebuilding after a stroke-width change.
+    // arrowLeft0/arrowTop0 track the group's origin at the time of the last update so that
+    // any translation by the user can be added as an offset when computing current coordinates.
+    group.arrowX1 = x1; group.arrowY1 = y1;
+    group.arrowX2 = x2; group.arrowY2 = y2;
+    group.arrowLeft0 = group.left; group.arrowTop0 = group.top;
+    return group;
+  }
+
+  // ── Toolbar display helpers ──────────────────────────
+  function showColorInToolbar(color) {
+    document.querySelectorAll('.swatch').forEach(function (s) {
+      s.classList.toggle('is-active', s.dataset.color === color);
+    });
+  }
+
+  function showStrokeInToolbar(sw) {
+    document.querySelectorAll('.stroke-btn').forEach(function (s) {
+      s.classList.toggle('is-active', parseInt(s.dataset.sw, 10) === sw);
+    });
+  }
+
+  // ── Read/write color and stroke on canvas objects ────
+  function getObjectColor(obj) {
+    if (obj.type === 'group') {
+      var ln = obj._objects.find(function (o) { return o.type === 'polyline'; });
+      return ln ? ln.stroke : null;
+    }
+    if (obj.type === 'rect' && obj.fill === 'transparent') return obj.stroke;
+    if (obj.type === 'i-text') return obj.fill;
+    return null;
+  }
+
+  function getObjectStrokeWidth(obj) {
+    if (obj.type === 'group') {
+      var ln = obj._objects.find(function (o) { return o.type === 'polyline'; });
+      return ln ? ln.strokeWidth : null;
+    }
+    if (obj.type === 'rect' && obj.fill === 'transparent') return obj.strokeWidth;
+    return null;
+  }
+
+  function applyColorToObject(obj, color) {
+    if (obj.type === 'group') {
+      obj._objects.forEach(function (child) {
+        if (child.type === 'polyline') child.set({ stroke: color });
+        else if (child.type === 'polygon') child.set({ fill: color, stroke: color });
+      });
+      obj.dirty = true;
+    } else if (obj.type === 'rect' && obj.fill === 'transparent') {
+      obj.set({ stroke: color });
+    } else if (obj.type === 'i-text') {
+      obj.set({ fill: color });
+    }
+    canvas.renderAll();
+  }
+
+  // Rebuilds an arrow group with a new stroke width, replacing it in the canvas and
+  // returning the new group. For other object types, updates strokeWidth in place.
+  function applyStrokeToObject(obj, sw) {
+    if (obj.type === 'group' && obj.arrowX1 !== undefined) {
+      var ln = obj._objects.find(function (o) { return o.type === 'polyline'; });
+      var color = ln ? ln.stroke : currentColor;
+      var dx = obj.left - obj.arrowLeft0, dy = obj.top - obj.arrowTop0;
+      var newArrow = makeArrow(obj.arrowX1 + dx, obj.arrowY1 + dy, obj.arrowX2 + dx, obj.arrowY2 + dy, color, sw);
+      newArrow.set({ selectable: true, evented: true });
+      rebuildingArrow = true;
+      canvas.remove(obj);
+      canvas.add(newArrow);
+      canvas.setActiveObject(newArrow);
+      canvas.renderAll();
+      rebuildingArrow = false;
+      return newArrow;
+    }
+    if (obj.type === 'rect' && obj.fill === 'transparent') {
+      obj.set({ strokeWidth: sw });
+      canvas.renderAll();
+    }
+    return obj;
+  }
+
+  // ── Selection state management ───────────────────────
+  function onObjectSelected(obj) {
+    if (!obj || obj.isBackground) { selectedObj = null; return; }
+    selectedObj = obj;
+    savedColor = currentColor;
+    savedStroke = currentStroke;
+    colorChangedDuringSel = false;
+    strokeChangedDuringSel = false;
+    var c = getObjectColor(obj);
+    var s = getObjectStrokeWidth(obj);
+    if (c !== null) { currentColor = c; showColorInToolbar(c); }
+    if (s !== null) { currentStroke = s; showStrokeInToolbar(s); }
+  }
+
+  // Restores pre-selection toolbar values for any dimension the user did not change
+  // while the object was selected, then clears the saved state.
+  function restoreToolbarIfNeeded() {
+    if (savedColor === null) return;
+    if (!colorChangedDuringSel) { currentColor = savedColor; showColorInToolbar(savedColor); }
+    if (!strokeChangedDuringSel) { currentStroke = savedStroke; showStrokeInToolbar(savedStroke); }
+    savedColor = null;
+    savedStroke = null;
+    colorChangedDuringSel = false;
+    strokeChangedDuringSel = false;
   }
 
   // ── Drawing events ───────────────────────────────────
@@ -448,8 +571,41 @@
     }
   });
 
-  // Push history after moving/scaling existing objects
-  canvas.on('object:modified', pushHistory);
+  // Push history after moving/scaling existing objects; keep stored arrow endpoints in sync.
+  canvas.on('object:modified', function (opt) {
+    var obj = opt.target;
+    if (obj && obj.arrowX1 !== undefined) {
+      var dx = obj.left - obj.arrowLeft0, dy = obj.top - obj.arrowTop0;
+      if (dx !== 0 || dy !== 0) {
+        obj.arrowX1 += dx; obj.arrowY1 += dy;
+        obj.arrowX2 += dx; obj.arrowY2 += dy;
+        obj.arrowLeft0 = obj.left; obj.arrowTop0 = obj.top;
+      }
+    }
+    pushHistory();
+  });
+
+  // ── Selection: reflect/edit object color and stroke ──
+  canvas.on('selection:created', function () {
+    if (rebuildingArrow) return;
+    var objs = canvas.getActiveObjects();
+    if (objs.length === 1) onObjectSelected(objs[0]);
+    else selectedObj = null;
+  });
+
+  canvas.on('selection:updated', function () {
+    if (rebuildingArrow) return;
+    restoreToolbarIfNeeded();
+    var objs = canvas.getActiveObjects();
+    if (objs.length === 1) onObjectSelected(objs[0]);
+    else selectedObj = null;
+  });
+
+  canvas.on('selection:cleared', function () {
+    if (rebuildingArrow) return;
+    restoreToolbarIfNeeded();
+    selectedObj = null;
+  });
 
   // ── Content bounding box ──────────────────────────────
   // Returns the union bounding rect of all canvas objects, clamped to the
