@@ -139,10 +139,10 @@
     <hr class="tool-sep">
 
     <!-- Stroke width -->
-    <button class="stroke-btn is-active" data-sw="2" title="Thin">
+    <button class="stroke-btn" data-sw="2" title="Thin">
       <div class="stroke-line" style="height:2px"></div>
     </button>
-    <button class="stroke-btn" data-sw="4" title="Medium">
+    <button class="stroke-btn is-active" data-sw="4" title="Medium">
       <div class="stroke-line" style="height:4px"></div>
     </button>
     <button class="stroke-btn" data-sw="7" title="Thick">
@@ -197,7 +197,7 @@
   // ── State ────────────────────────────────────────────
   let currentTool = 'select';
   let currentColor = '#ef4444';
-  let currentStroke = 2;
+  let currentStroke = 4;
   let history = [];   // JSON snapshots for undo
   let isDrawing = false;
   let drawStart = null;
