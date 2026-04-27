@@ -341,12 +341,14 @@
     var angle = Math.atan2(y2 - y1, x2 - x1);
     var headSize = Math.max(14, sw * 4);
 
-    // End the line at the arrowhead base so the stroke doesn't protrude through the tip.
-    var lx2 = x2 - headSize * Math.cos(angle);
-    var ly2 = y2 - headSize * Math.sin(angle);
+    // End the line at the arrowhead base (wings are at ±30°, so base is cos(π/6) back from tip).
+    var baseOffset = headSize * Math.cos(Math.PI / 6);
+    var lx2 = x2 - baseOffset * Math.cos(angle);
+    var ly2 = y2 - baseOffset * Math.sin(angle);
 
-    var line = new fabric.Line([x1, y1, lx2, ly2], {
+    var line = new fabric.Polyline([{ x: x1, y: y1 }, { x: lx2, y: ly2 }], {
       stroke: color, strokeWidth: sw,
+      fill: 'transparent',
       selectable: false, evented: false,
     });
 
