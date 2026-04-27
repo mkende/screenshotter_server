@@ -210,7 +210,6 @@
   let savedStroke = null;   // ambient stroke when selection started
   let colorChangedDuringSel = false;
   let strokeChangedDuringSel = false;
-  let rebuildingArrow = false;  // suppress selection events during arrow rebuild
 
   // ── Canvas init ──────────────────────────────────────
   const canvas = new fabric.Canvas('c', {
@@ -254,7 +253,8 @@
 
   // ── History ──────────────────────────────────────────
   function pushHistory() {
-    history.push(canvas.toJSON(['isBackground', 'arrowX1', 'arrowY1', 'arrowX2', 'arrowY2', 'arrowLeft0', 'arrowTop0']));
+    // Arrow's x1/y1/x2/y2 are serialized via its toObject override.
+    history.push(canvas.toJSON(['isBackground']));
   }
 
   function undo() {
@@ -354,41 +354,159 @@
     }
   }());
 
-  // ── Arrow helper ─────────────────────────────────────
-  function makeArrow(x1, y1, x2, y2, color, sw) {
-    var angle = Math.atan2(y2 - y1, x2 - x1);
-    var headSize = Math.max(14, sw * 4);
+  // ── Arrow class ──────────────────────────────────────
+  // Custom Fabric object that renders a shaft + filled arrowhead from two endpoints
+  // (x1,y1) and (x2,y2) stored in canvas-absolute coordinates. Translation of the
+  // whole arrow is the only Fabric transform allowed; rotation/scaling are locked,
+  // and endpoint movement is exposed through two custom corner controls (ep1/ep2).
+  var Arrow = fabric.util.createClass(fabric.Object, {
+    type: 'arrow',
+    hasRotatingPoint: false,
+    lockRotation: true,
+    lockScalingX: true,
+    lockScalingY: true,
+    lockSkewingX: true,
+    lockSkewingY: true,
+    objectCaching: false,
+    fill: null,
 
-    // End the line at the arrowhead base (wings are at ±30°, so base is cos(π/6) back from tip).
-    var baseOffset = headSize * Math.cos(Math.PI / 6);
-    var lx2 = x2 - baseOffset * Math.cos(angle);
-    var ly2 = y2 - baseOffset * Math.sin(angle);
+    initialize: function (options) {
+      options = options || {};
+      this.callSuper('initialize', options);
+      this.x1 = options.x1 != null ? options.x1 : 0;
+      this.y1 = options.y1 != null ? options.y1 : 0;
+      this.x2 = options.x2 != null ? options.x2 : 0;
+      this.y2 = options.y2 != null ? options.y2 : 0;
+      this._updateGeometry();
+    },
 
-    var line = new fabric.Polyline([{ x: x1, y: y1 }, { x: lx2, y: ly2 }], {
-      stroke: color, strokeWidth: sw,
-      fill: 'transparent',
-      selectable: false, evented: false,
-    });
+    // Returns the points needed to render the arrow given current x1/y1/x2/y2 and strokeWidth.
+    _arrowGeom: function () {
+      var ang = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
+      var hs = Math.max(14, this.strokeWidth * 4);
+      var bo = hs * Math.cos(Math.PI / 6);
+      return {
+        lx2: this.x2 - bo * Math.cos(ang),
+        ly2: this.y2 - bo * Math.sin(ang),
+        hw1x: this.x2 - hs * Math.cos(ang - Math.PI / 6),
+        hw1y: this.y2 - hs * Math.sin(ang - Math.PI / 6),
+        hw2x: this.x2 - hs * Math.cos(ang + Math.PI / 6),
+        hw2y: this.y2 - hs * Math.sin(ang + Math.PI / 6),
+      };
+    },
 
-    var hx = x2, hy = y2;
-    var head = new fabric.Polygon([
-      { x: hx, y: hy },
-      { x: hx - headSize * Math.cos(angle - Math.PI / 6), y: hy - headSize * Math.sin(angle - Math.PI / 6) },
-      { x: hx - headSize * Math.cos(angle + Math.PI / 6), y: hy - headSize * Math.sin(angle + Math.PI / 6) },
-    ], {
-      fill: color, stroke: color, strokeWidth: 1,
-      selectable: false, evented: false,
-    });
+    // Folds any pending translation (left/top moved since last geometry update) into
+    // x1/y1/x2/y2. Required before any operation that recomputes the bounding box from
+    // endpoints, because translation drags only update left/top — not the endpoints —
+    // until the move completes. Multi-object drags don't fire object:modified per child,
+    // so callers must sync lazily when next touching the geometry.
+    _syncTranslation: function () {
+      if (this._geomLeft == null) return;
+      var dx = this.left - this._geomLeft;
+      var dy = this.top - this._geomTop;
+      if (dx === 0 && dy === 0) return;
+      this.x1 += dx; this.y1 += dy;
+      this.x2 += dx; this.y2 += dy;
+      this._geomLeft = this.left;
+      this._geomTop = this.top;
+    },
 
-    var group = new fabric.Group([line, head], { selectable: true, evented: true });
-    // Store arrow endpoints so they can be used when rebuilding after a stroke-width change.
-    // arrowLeft0/arrowTop0 track the group's origin at the time of the last update so that
-    // any translation by the user can be added as an offset when computing current coordinates.
-    group.arrowX1 = x1; group.arrowY1 = y1;
-    group.arrowX2 = x2; group.arrowY2 = y2;
-    group.arrowLeft0 = group.left; group.arrowTop0 = group.top;
-    return group;
+    // Recomputes left/top/width/height from the endpoints and resets the geometry
+    // reference (_geomLeft/_geomTop). The reference lets _render and the control
+    // positionHandlers stay correct while Fabric updates left/top during a translation
+    // drag (x1/y1/x2/y2 are only synced once the move completes, in object:modified).
+    _updateGeometry: function () {
+      var g = this._arrowGeom();
+      var pad = this.strokeWidth / 2;
+      var minX = Math.min(this.x1, this.x2, g.hw1x, g.hw2x) - pad;
+      var minY = Math.min(this.y1, this.y2, g.hw1y, g.hw2y) - pad;
+      var maxX = Math.max(this.x1, this.x2, g.hw1x, g.hw2x) + pad;
+      var maxY = Math.max(this.y1, this.y2, g.hw1y, g.hw2y) + pad;
+      this.set({ left: minX, top: minY, width: maxX - minX, height: maxY - minY });
+      this._geomLeft = minX;
+      this._geomTop = minY;
+      this.setCoords();
+    },
+
+    // Renders the arrow. Fabric has already translated ctx to (left + width/2,
+    // top + height/2). We use the geometry-reference center (_geomLeft + width/2)
+    // so endpoint coordinates render correctly even when current left/top has been
+    // shifted by an in-progress translation drag.
+    _render: function (ctx) {
+      var g = this._arrowGeom();
+      var cx = this._geomLeft + this.width / 2;
+      var cy = this._geomTop + this.height / 2;
+
+      ctx.save();
+      ctx.strokeStyle = this.stroke;
+      ctx.lineWidth = this.strokeWidth;
+      ctx.beginPath();
+      ctx.moveTo(this.x1 - cx, this.y1 - cy);
+      ctx.lineTo(g.lx2 - cx, g.ly2 - cy);
+      ctx.stroke();
+
+      ctx.fillStyle = this.stroke;
+      ctx.beginPath();
+      ctx.moveTo(this.x2 - cx, this.y2 - cy);
+      ctx.lineTo(g.hw1x - cx, g.hw1y - cy);
+      ctx.lineTo(g.hw2x - cx, g.hw2y - cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    },
+
+    toObject: function (propertiesToInclude) {
+      return this.callSuper('toObject', ['x1', 'y1', 'x2', 'y2'].concat(propertiesToInclude || []));
+    },
+  });
+
+  Arrow.fromObject = function (object, callback) {
+    var arrow = new Arrow(object);
+    if (callback) callback(arrow);
+    return arrow;
+  };
+
+  fabric.Arrow = Arrow;
+
+  // ── Endpoint controls (replace the default 8 BB handles with two square endpoints) ──
+  function arrowEndpointPositionHandler(propX, propY) {
+    return function (dim, finalMatrix, fabricObject) {
+      var cx = fabricObject._geomLeft + fabricObject.width / 2;
+      var cy = fabricObject._geomTop + fabricObject.height / 2;
+      return fabric.util.transformPoint(
+        { x: fabricObject[propX] - cx, y: fabricObject[propY] - cy },
+        finalMatrix
+      );
+    };
   }
+
+  function arrowEndpointActionHandler(propX, propY) {
+    return function (eventData, transform, x, y) {
+      var target = transform.target;
+      // Fold pending translation into endpoints first so the *other* endpoint
+      // doesn't get stranded at its pre-translation position.
+      target._syncTranslation();
+      target[propX] = x;
+      target[propY] = y;
+      target._updateGeometry();
+      return true;
+    };
+  }
+
+  Arrow.prototype.controls = {
+    ep1: new fabric.Control({
+      positionHandler: arrowEndpointPositionHandler('x1', 'y1'),
+      actionHandler: arrowEndpointActionHandler('x1', 'y1'),
+      cursorStyle: 'crosshair',
+      actionName: 'modifyArrow',
+    }),
+    ep2: new fabric.Control({
+      positionHandler: arrowEndpointPositionHandler('x2', 'y2'),
+      actionHandler: arrowEndpointActionHandler('x2', 'y2'),
+      cursorStyle: 'crosshair',
+      actionName: 'modifyArrow',
+    }),
+  };
 
   // ── Toolbar display helpers ──────────────────────────
   function showColorInToolbar(color) {
@@ -405,31 +523,21 @@
 
   // ── Read/write color and stroke on canvas objects ────
   function getObjectColor(obj) {
-    if (obj.type === 'group') {
-      var ln = obj._objects.find(function (o) { return o.type === 'polyline'; });
-      return ln ? ln.stroke : null;
-    }
+    if (obj.type === 'arrow') return obj.stroke;
     if (obj.type === 'rect' && obj.fill === 'transparent') return obj.stroke;
     if (obj.type === 'i-text') return obj.fill;
     return null;
   }
 
   function getObjectStrokeWidth(obj) {
-    if (obj.type === 'group') {
-      var ln = obj._objects.find(function (o) { return o.type === 'polyline'; });
-      return ln ? ln.strokeWidth : null;
-    }
+    if (obj.type === 'arrow') return obj.strokeWidth;
     if (obj.type === 'rect' && obj.fill === 'transparent') return obj.strokeWidth;
     return null;
   }
 
   function applyColorToObject(obj, color) {
-    if (obj.type === 'group') {
-      obj._objects.forEach(function (child) {
-        if (child.type === 'polyline') child.set({ stroke: color });
-        else if (child.type === 'polygon') child.set({ fill: color, stroke: color });
-      });
-      obj.dirty = true;
+    if (obj.type === 'arrow') {
+      obj.set({ stroke: color });
     } else if (obj.type === 'rect' && obj.fill === 'transparent') {
       obj.set({ stroke: color });
     } else if (obj.type === 'i-text') {
@@ -438,24 +546,14 @@
     canvas.renderAll();
   }
 
-  // Rebuilds an arrow group with a new stroke width, replacing it in the canvas and
-  // returning the new group. For other object types, updates strokeWidth in place.
   function applyStrokeToObject(obj, sw) {
-    if (obj.type === 'group' && obj.arrowX1 !== undefined) {
-      var ln = obj._objects.find(function (o) { return o.type === 'polyline'; });
-      var color = ln ? ln.stroke : currentColor;
-      var dx = obj.left - obj.arrowLeft0, dy = obj.top - obj.arrowTop0;
-      var newArrow = makeArrow(obj.arrowX1 + dx, obj.arrowY1 + dy, obj.arrowX2 + dx, obj.arrowY2 + dy, color, sw);
-      newArrow.set({ selectable: true, evented: true });
-      rebuildingArrow = true;
-      canvas.remove(obj);
-      canvas.add(newArrow);
-      canvas.setActiveObject(newArrow);
+    if (obj.type === 'arrow') {
+      obj._syncTranslation();
+      obj.set({ strokeWidth: sw });
+      // Arrowhead size depends on strokeWidth, so the bounding box must be recomputed.
+      obj._updateGeometry();
       canvas.renderAll();
-      rebuildingArrow = false;
-      return newArrow;
-    }
-    if (obj.type === 'rect' && obj.fill === 'transparent') {
+    } else if (obj.type === 'rect' && obj.fill === 'transparent') {
       obj.set({ strokeWidth: sw });
       canvas.renderAll();
     }
@@ -535,7 +633,12 @@
       });
       canvas.add(activeObj);
     } else if (currentTool === 'arrow') {
-      activeObj = makeArrow(ptr.x, ptr.y, ptr.x + 1, ptr.y, currentColor, currentStroke);
+      activeObj = new fabric.Arrow({
+        x1: ptr.x, y1: ptr.y,
+        x2: ptr.x + 1, y2: ptr.y,
+        stroke: currentColor, strokeWidth: currentStroke,
+        selectable: false, evented: false,
+      });
       canvas.add(activeObj);
     }
   });
@@ -552,9 +655,8 @@
         height: Math.abs(ptr.y - drawStart.y),
       });
     } else if (currentTool === 'arrow') {
-      canvas.remove(activeObj);
-      activeObj = makeArrow(drawStart.x, drawStart.y, ptr.x, ptr.y, currentColor, currentStroke);
-      canvas.add(activeObj);
+      activeObj.set({ x2: ptr.x, y2: ptr.y });
+      activeObj._updateGeometry();
     }
     canvas.renderAll();
   });
@@ -571,30 +673,22 @@
     }
   });
 
-  // Push history after moving/scaling existing objects; keep stored arrow endpoints in sync.
+  // Push history after moving/scaling existing objects; eagerly fold any translation
+  // into the arrow's endpoints so the JSON snapshot captures the post-move state.
   canvas.on('object:modified', function (opt) {
     var obj = opt.target;
-    if (obj && obj.arrowX1 !== undefined) {
-      var dx = obj.left - obj.arrowLeft0, dy = obj.top - obj.arrowTop0;
-      if (dx !== 0 || dy !== 0) {
-        obj.arrowX1 += dx; obj.arrowY1 += dy;
-        obj.arrowX2 += dx; obj.arrowY2 += dy;
-        obj.arrowLeft0 = obj.left; obj.arrowTop0 = obj.top;
-      }
-    }
+    if (obj && obj.type === 'arrow') obj._syncTranslation();
     pushHistory();
   });
 
   // ── Selection: reflect/edit object color and stroke ──
   canvas.on('selection:created', function () {
-    if (rebuildingArrow) return;
     var objs = canvas.getActiveObjects();
     if (objs.length === 1) onObjectSelected(objs[0]);
     else selectedObj = null;
   });
 
   canvas.on('selection:updated', function () {
-    if (rebuildingArrow) return;
     restoreToolbarIfNeeded();
     var objs = canvas.getActiveObjects();
     if (objs.length === 1) onObjectSelected(objs[0]);
@@ -602,7 +696,6 @@
   });
 
   canvas.on('selection:cleared', function () {
-    if (rebuildingArrow) return;
     restoreToolbarIfNeeded();
     selectedObj = null;
   });
