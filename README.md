@@ -1,18 +1,53 @@
 # Screenshotter server
 
-Go HTTP server that receives screenshots from the browser extension, stores
-them on disk, and serves a simple web UI for viewing them.
+Go HTTP server that pairs with the
+[Screenshotter Chrome extension](<EXTENSION_CHROME_STORE_URL>) to receive
+browser screenshots, store them on disk, and serve a web UI for browsing and
+annotating them.
 
-## Requirements
+The server is the backend component of Screenshotter. The Chrome extension
+captures and crops screenshots in the browser, then uploads them here.
+
+A pre-built Docker image is published at
+[ghcr.io/mkende/screenshotter](https://github.com/users/mkende/packages/container/package/screenshotter).
+
+## Docker
+
+The fastest way to get started is with the pre-built image. Copy the example
+config, fill in the required fields (see [Configuration](#configuration)),
+then start the container:
+
+```sh
+cp config.example.toml config.toml
+$EDITOR config.toml
+docker compose up -d
+```
+
+`docker-compose.yml`:
+
+```yaml
+services:
+  screenshotter:
+    image: ghcr.io/mkende/screenshotter:latest
+    restart: unless-stopped
+    volumes:
+      - ./config.toml:/etc/screenshotter/config.toml:ro
+      - screenshotter-data:/var/lib/screenshotter
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  screenshotter-data:
+```
+
+## Build from source
+
+Requirements:
 
 - Go 1.23+ with CGo enabled (required by `mattn/go-sqlite3` for SQLite)
 - A C compiler (`gcc` / `clang`) on the build host
-- A reverse proxy that terminates TLS (nginx, Caddy, etc.)
-
-## Build
 
 ```sh
-cd server
 go build -o screenshotter ./cmd/screenshotter
 ```
 
@@ -36,9 +71,9 @@ $EDITOR config.toml
   here with a 301, preserving path and query.
 - **`server.storage_path`** — Directory where PNGs and thumbnails are stored.
 - **`db.driver`** — `sqlite` or `postgres`.
-- **`db.dsn`** — Path to `.sqlite` file, or a PostgreSQL connection string.
-- **At least one authentication backend** — see below.
-- **`jwt_secret`** — Required when OIDC is enabled. Random string ≥ 32 chars,
+- **`db.dsn`** — Path to the `.sqlite` file, or a PostgreSQL connection string.
+- **At least one authentication backend** — see [Authentication backends](#authentication-backends).
+- **`jwt_secret`** — Required when OIDC is enabled. Random string ≥ 32 chars;
   generate with `openssl rand -hex 32`. Can also be provided via
   `jwt_secret_env_var`.
 
@@ -55,6 +90,7 @@ request as one shared user. Do not enable on the public internet.
 ```toml
 [anonymous]
 enabled = true
+# is_admin = false  # grant the anonymous user full admin privileges
 ```
 
 **Tailscale** — identity is read from `Tailscale-User-Login` and
@@ -84,8 +120,8 @@ enabled = true
 ```
 
 **OIDC** — the server acts as an OIDC Relying Party using the
-authorization-code flow with PKCE. Any spec-compliant provider works (Google,
-Keycloak, GitHub via Dex, …). Register this redirect URI with your IdP:
+authorization-code flow. Any spec-compliant provider works (Google, Keycloak,
+GitHub via Dex, …). Register this redirect URI with your IdP:
 
 ```
 <canonical_address>/auth/callback
@@ -100,14 +136,14 @@ enabled       = true
 issuer        = "https://accounts.google.com"
 client_id     = "<your-client-id>"
 client_secret = "<your-client-secret>"
-# client_secret_env_var = "SCREENSHOTTER_OIDC_CLIENT_SECRET"
-# scopes       = ["openid", "email", "profile"]
-# groups_claim = "groups"
+# client_secret_env_var  = "SCREENSHOTTER_OIDC_CLIENT_SECRET"
+# scopes                 = ["openid", "email", "profile"]
+# groups_claim           = "groups"
+# use_pkce               = false
+# require_email_verified = true
 ```
 
 ### Admins
-
-Users are granted admin privileges via:
 
 ```toml
 admin_emails = ["alice@example.com"]
@@ -121,12 +157,42 @@ groups header.
 
 ```toml
 [cors]
-extension_ids = ["abcdefghijklmnopqrstuvwxyz123456"]
+extension_ids = ["nnipkgjcfgekggpkclhdghbbfnpokdlg"]
 ```
 
-Replace the placeholder with the real Chrome extension ID. List multiple IDs
-for dev + production builds. The ID is shown at `chrome://extensions` after
-loading the extension.
+The default value matches the published Chrome extension. If you load the
+extension unpacked (development builds), replace it with the ID shown at
+`chrome://extensions`. Multiple IDs can be listed to support dev and
+production builds simultaneously.
+
+### Optional settings
+
+- **`listen_addr`** — TCP address the server binds to. Default: `0.0.0.0:8080`.
+- **`title`** — Human-readable name shown in the UI. Default: `Screenshotter`.
+- **`log_level`** — Minimum log severity: `debug`, `info`, `warn`, `error`.
+  Default: `info`.
+- **`favicon_path`** — Path to a custom favicon file.
+- **`trusted_proxy`** — CIDRs of reverse proxies whose forwarding headers are
+  trusted. Required when using the Tailscale or proxy auth backends.
+- **`server.max_upload_mb`** — Maximum upload size in megabytes. Default: `4`.
+- **`server.assets_path`** — Optional directory of static assets. When set,
+  `/favicon.ico` is served from `<assets_path>/favicon.ico` unless overridden
+  by `favicon_path`.
+- **`server.require_auth_to_view`** — When `true`, viewing images requires an
+  authenticated session. Default: `false` (anyone with the image ID can view
+  it).
+- **`id.length`** — Length of the random alphanumeric image ID. Default: `8`,
+  minimum: `4`.
+- **`session.ttl`** — Hard session expiry. Default: `168h` (7 days).
+- **`session.renewal_delay`** — Minimum age before silent session renewal.
+  Default: `1h`.
+- **`home.cols`** — Maximum thumbnail columns in the gallery (1–10).
+  Default: `5`.
+- **`home.page_size`** — Screenshots shown per page. Default: `20`.
+- **`ratelimit.requests_per_second`** — Max requests per source IP per second
+  on public image routes. Default: `6`. Set to `0` to disable.
+- **`ratelimit.requests_per_minute`** — Max requests per source IP per minute.
+  Default: `60`. Set to `0` to disable.
 
 ## Running
 
@@ -134,16 +200,16 @@ loading the extension.
 ./screenshotter -config /etc/screenshotter/config.toml
 ```
 
-The server listens on `listen_addr` (default `0.0.0.0:8080`) and expects the
-reverse proxy to handle TLS.
+The server listens on `listen_addr` and expects a reverse proxy to handle TLS.
+The session cookie is set with `Secure`, so HTTPS is required in production.
 
 ### Reverse proxy
 
-The session cookie is set with `Secure`, so the server must be served over
-HTTPS in production. Configure your proxy to forward to `127.0.0.1:8080` (or
-whatever `listen_addr` is set to).
+Configure your proxy to forward to `127.0.0.1:8080` (or whatever
+`listen_addr` is set to), and add the proxy's CIDR to `trusted_proxy` in
+`config.toml` so forwarded headers are honoured.
 
-**Caddy example** (`/etc/caddy/Caddyfile`):
+**Caddy** (`/etc/caddy/Caddyfile`):
 
 ```
 screenshots.example.com {
@@ -151,7 +217,7 @@ screenshots.example.com {
 }
 ```
 
-**nginx example** (`/etc/nginx/sites-available/screenshotter`):
+**nginx** (`/etc/nginx/sites-available/screenshotter`):
 
 ```nginx
 server {
@@ -171,8 +237,6 @@ server {
     }
 }
 ```
-
-Add the proxy's CIDR to `trusted_proxy` so forwarded headers are honoured.
 
 ### systemd service
 
@@ -197,48 +261,3 @@ WantedBy=multi-user.target
 systemctl daemon-reload
 systemctl enable --now screenshotter
 ```
-
-## Unauthenticated routes & rate limiting
-
-Two routes are reachable without authentication:
-
-- `GET /{id}` — the HTML image viewer
-- `GET /{id}.png` — the raw PNG
-
-Both apply a per-IP sliding-window rate limit (`ratelimit.requests_per_second`
-/ `requests_per_minute`) that also counts 404 responses, preventing ID
-enumeration scraping. All other routes (upload, delete, annotate, thumbnails,
-the home page when logged in) require a valid identity.
-
-## Storage layout
-
-```
-<storage_path>/
-  <id>.png          # full-size PNG
-  thumbs/<id>.png   # 320px thumbnail generated at upload time
-```
-
-The `storage_path` directory and the `thumbs/` subdirectory are created
-automatically on startup.
-
-## Default values
-
-| Setting | Default |
-|---|---|
-| `listen_addr` | `0.0.0.0:8080` |
-| `title` | `Screenshotter` |
-| `log_level` | `info` |
-| `server.max_upload_mb` | `4` |
-| `id.length` | `8` |
-| `session.ttl` | `168h` (7 days) |
-| `session.renewal_delay` | `1h` |
-| `home.cols` | `5` |
-| `home.page_size` | `20` |
-| `ratelimit.requests_per_second` | `5` |
-| `ratelimit.requests_per_minute` | `50` |
-| `oidc.scopes` | `["openid", "email", "profile"]` |
-| `oidc.groups_claim` | `groups` |
-| `proxy_auth.user_header` | `Remote-User` |
-| `proxy_auth.email_header` | `Remote-Email` |
-| `proxy_auth.name_header` | `Remote-Name` |
-| `proxy_auth.groups_header` | `Remote-Groups` |
