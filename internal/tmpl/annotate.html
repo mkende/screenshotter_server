@@ -455,10 +455,41 @@
       ctx.restore();
     },
 
+    // Restricts hit-testing to the shaft (with a small margin) and the arrowhead
+    // triangle, so clicks inside the arrow's bounding box but off the visible
+    // geometry fall through to objects underneath.
+    containsPoint: function (point) {
+      this._syncTranslation();
+      var g = this._arrowGeom();
+      var margin = Math.max(this.strokeWidth / 2 + 3, 6);
+      if (pointToSegmentDistance(point.x, point.y, this.x1, this.y1, g.lx2, g.ly2) <= margin) {
+        return true;
+      }
+      return pointInTriangle(point.x, point.y, this.x2, this.y2, g.hw1x, g.hw1y, g.hw2x, g.hw2y);
+    },
+
     toObject: function (propertiesToInclude) {
       return this.callSuper('toObject', ['x1', 'y1', 'x2', 'y2'].concat(propertiesToInclude || []));
     },
   });
+
+  function pointToSegmentDistance(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay;
+    var len2 = dx * dx + dy * dy;
+    var t = len2 === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / len2;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    var qx = ax + t * dx, qy = ay + t * dy;
+    return Math.hypot(px - qx, py - qy);
+  }
+
+  function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
+    var d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+    var d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+    var d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+    var hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+    var hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+    return !(hasNeg && hasPos);
+  }
 
   Arrow.fromObject = function (object, callback) {
     var arrow = new Arrow(object);
