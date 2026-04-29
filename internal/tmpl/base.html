@@ -22,20 +22,31 @@
       {{block "navbar-start" .}}{{end}}
       <div class="navbar-end">
         {{block "navbar-end" .}}{{end}}
-        {{if and .User .User.IsAdmin}}
-        <div class="navbar-item">
-          <a class="button is-warning is-small" href="/admin">Admin</a>
-        </div>
-        {{end}}
         {{if .User}}
-        <div class="navbar-item">
-          <span class="has-text-grey">{{.User.DisplayName}}</span>
+        <div class="navbar-item has-dropdown" id="user-menu">
+          <a class="navbar-link" id="user-menu-trigger">{{.User.DisplayName}}</a>
+          <div class="navbar-dropdown is-right">
+            <div class="navbar-item">
+              <div>
+                <p class="has-text-weight-semibold">{{.User.DisplayName}}</p>
+                <p class="is-size-7 has-text-grey">{{.User.Email}}</p>
+              </div>
+            </div>
+            {{if .User.IsAdmin}}
+            <hr class="navbar-divider">
+            <a class="navbar-item" href="/admin">
+              <span class="icon-text">
+                <span class="icon"><i class="fas fa-users-cog"></i></span>
+                <span>Admin</span>
+              </span>
+            </a>
+            {{end}}
+            {{if .OIDCEnabled}}
+            <hr class="navbar-divider">
+            <a class="navbar-item" href="/auth/logout">Log out</a>
+            {{end}}
+          </div>
         </div>
-        {{if .OIDCEnabled}}
-        <div class="navbar-item">
-          <a class="button is-light is-small" href="/auth/logout">Log out</a>
-        </div>
-        {{end}}
         {{else if .OIDCEnabled}}
         <div class="navbar-item">
           <a class="button is-link is-small" href="/auth/login">Log in</a>
@@ -61,12 +72,23 @@
 <script nonce="{{.Nonce}}">
 (function() {
   var burger = document.querySelector('.navbar-burger');
-  if (!burger) return;
-  burger.addEventListener('click', function() {
-    var menu = document.getElementById(burger.dataset.target);
-    burger.classList.toggle('is-active');
-    if (menu) menu.classList.toggle('is-active');
-  });
+  if (burger) {
+    burger.addEventListener('click', function() {
+      var menu = document.getElementById(burger.dataset.target);
+      burger.classList.toggle('is-active');
+      if (menu) menu.classList.toggle('is-active');
+    });
+  }
+  var userMenu = document.getElementById('user-menu');
+  if (userMenu) {
+    document.getElementById('user-menu-trigger').addEventListener('click', function(e) {
+      e.stopPropagation();
+      userMenu.classList.toggle('is-active');
+    });
+    document.addEventListener('click', function() {
+      userMenu.classList.remove('is-active');
+    });
+  }
 }());
 </script>
 </body>

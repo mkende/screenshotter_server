@@ -166,21 +166,14 @@
     {{end}}
   </div>
 </div>
-{{if and .User .User.IsAdmin}}
+{{if and .User .User.IsAdmin (not .IsOwner)}}
 <div class="navbar-item">
   <div class="buttons are-small">
-    {{if not .IsOwner}}
     <button id="btn-admin-delete" class="button is-danger" data-image-id="{{.Image.ID}}"
             title="Admin action: delete this image regardless of ownership">
       <span class="icon is-small"><i class="fa fa-shield-halved"></i></span>
       <span>Admin: delete</span>
     </button>
-    {{end}}
-    <a class="button is-warning" href="/admin/users/{{.Image.OwnerID}}"
-       title="Open admin panel for this image&#39;s owner">
-      <span class="icon is-small"><i class="fa fa-users-cog"></i></span>
-      <span>Admin: manage</span>
-    </a>
   </div>
 </div>
 {{end}}
