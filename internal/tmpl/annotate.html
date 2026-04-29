@@ -87,6 +87,8 @@
     .action-btn.is-save { background: #3273dc; border-color: #3273dc; color: white; }
     .action-btn.is-save:hover { background: #2366d1; }
     .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .tool-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .tool-btn:disabled:hover { background: none; color: #555; }
 
     /* ── Canvas area ──────────────────────────────────── */
     #canvas-area {
@@ -151,9 +153,12 @@
 
     <hr class="tool-sep">
 
-    <!-- Undo -->
+    <!-- Undo / Delete -->
     <button id="undo-btn" class="tool-btn" title="Undo (Ctrl+Z)">
       <i class="fa fa-rotate-left"></i>
+    </button>
+    <button id="delete-btn" class="tool-btn" title="Delete selected (Del)" disabled>
+      <i class="fa fa-trash" style="font-size:14px"></i>
     </button>
 
     <!-- Right-side actions -->
@@ -272,6 +277,21 @@
     });
   }
 
+  // ── Delete selected ──────────────────────────────────
+  function deleteSelected() {
+    var objs = canvas.getActiveObjects().filter(function (o) { return !o.isBackground; });
+    if (!objs.length) return;
+    objs.forEach(function (o) { canvas.remove(o); });
+    canvas.discardActiveObject();
+    canvas.renderAll();
+    pushHistory();
+  }
+
+  function updateDeleteBtn() {
+    var hasSelectable = canvas.getActiveObjects().some(function (o) { return !o.isBackground; });
+    document.getElementById('delete-btn').disabled = !hasSelectable;
+  }
+
   // ── Tool management ──────────────────────────────────
   function setTool(tool) {
     if (currentTool === 'select' && tool !== 'select') {
@@ -332,6 +352,7 @@
     btn.addEventListener('click', function () { setStroke(parseInt(btn.dataset.sw, 10)); });
   });
   document.getElementById('undo-btn').addEventListener('click', undo);
+  document.getElementById('delete-btn').addEventListener('click', deleteSelected);
   document.getElementById('cancel-btn').addEventListener('click', cancelAnnotate);
   document.getElementById('save-btn').addEventListener('click', saveAnnotation);
 
@@ -717,6 +738,7 @@
     var objs = canvas.getActiveObjects();
     if (objs.length === 1) onObjectSelected(objs[0]);
     else selectedObj = null;
+    updateDeleteBtn();
   });
 
   canvas.on('selection:updated', function () {
@@ -724,11 +746,13 @@
     var objs = canvas.getActiveObjects();
     if (objs.length === 1) onObjectSelected(objs[0]);
     else selectedObj = null;
+    updateDeleteBtn();
   });
 
   canvas.on('selection:cleared', function () {
     restoreToolbarIfNeeded();
     selectedObj = null;
+    updateDeleteBtn();
   });
 
   // ── Content bounding box ──────────────────────────────
@@ -823,10 +847,7 @@
     if (e.key === 'Delete' || e.key === 'Backspace') {
       var active = canvas.getActiveObject();
       if (active && !active.isBackground && active.type !== 'i-text') {
-        canvas.remove(active);
-        canvas.discardActiveObject();
-        canvas.renderAll();
-        pushHistory();
+        deleteSelected();
       }
     }
   });
