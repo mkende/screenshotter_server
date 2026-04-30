@@ -1,7 +1,7 @@
 # Screenshotter server
 
 Go HTTP server that pairs with the
-[Screenshotter Chrome extension](<EXTENSION_CHROME_STORE_URL>) to receive
+[Screenshotter Chrome extension](https://chromewebstore.google.com/detail/nnipkgjcfgekggpkclhdghbbfnpokdlg) to receive
 browser screenshots, store them on disk, and serve a web UI for browsing and
 annotating them.
 
