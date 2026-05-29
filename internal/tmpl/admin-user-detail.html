@@ -30,11 +30,10 @@
       </p>
     </div>
     <div class="media-right">
-      <button class="button is-danger"
+      <button class="button is-danger js-delete-user"
         data-email="{{.TargetUser.Email}}"
         data-name="{{.TargetUser.DisplayName}}"
-        data-count="{{.TargetUser.ImageCount}}"
-        onclick="deleteUser(this)">
+        data-count="{{.TargetUser.ImageCount}}">
         <span class="icon"><i class="fas fa-trash"></i></span>
         <span>Delete user</span>
       </button>
@@ -51,10 +50,9 @@
         placeholder="Target user email (must already exist)">
     </div>
     <div class="control">
-      <button class="button is-info"
+      <button class="button is-info js-reassign-all"
         data-email="{{.TargetUser.Email}}"
-        data-count="{{.TargetUser.ImageCount}}"
-        onclick="reassignAll(this)">
+        data-count="{{.TargetUser.ImageCount}}">
         Reassign all {{.TargetUser.ImageCount}} screenshots
       </button>
     </div>
@@ -101,14 +99,12 @@
                 style="width:200px">
             </div>
             <div class="control">
-              <button class="button is-small is-info"
-                data-id="{{.ID}}"
-                onclick="reassignImage(this)">Reassign</button>
+              <button class="button is-small is-info js-reassign-image"
+                data-id="{{.ID}}">Reassign</button>
             </div>
             <div class="control">
-              <button class="button is-small is-danger is-outlined"
-                data-id="{{.ID}}"
-                onclick="deleteImage(this)">Delete</button>
+              <button class="button is-small is-danger is-outlined js-delete-image"
+                data-id="{{.ID}}">Delete</button>
             </div>
           </div>
         </td>
@@ -209,5 +205,18 @@ async function deleteImage(btn) {
     alert('Error: ' + (data.error || resp.statusText));
   }
 }
+
+document.querySelectorAll('.js-delete-user').forEach(function (btn) {
+  btn.addEventListener('click', function () { deleteUser(btn); });
+});
+document.querySelectorAll('.js-reassign-all').forEach(function (btn) {
+  btn.addEventListener('click', function () { reassignAll(btn); });
+});
+document.querySelectorAll('.js-reassign-image').forEach(function (btn) {
+  btn.addEventListener('click', function () { reassignImage(btn); });
+});
+document.querySelectorAll('.js-delete-image').forEach(function (btn) {
+  btn.addEventListener('click', function () { deleteImage(btn); });
+});
 </script>
 {{end}}

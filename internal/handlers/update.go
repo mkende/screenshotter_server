@@ -38,9 +38,10 @@ func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 		title = &req.Title
 	}
 
-	var sourceURL *string
-	if s := strings.TrimSpace(req.SourceURL); s != "" {
-		sourceURL = &s
+	sourceURL, err := h.parseSourceURL(req.SourceURL)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, "source_url uses a scheme that is not allowed")
+		return
 	}
 
 	updated, err := h.db.UpdateImage(r.Context(), id, identity.Email, title, sourceURL)

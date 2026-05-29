@@ -121,8 +121,8 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 		r.Get("/admin/users/{email}", h.AdminUserDetail)
 		r.Delete("/admin/users/{email}", h.AdminDeleteUser)
 		r.Post("/admin/users/{email}/reassign-all", h.AdminReassignAll)
-		r.Delete("/admin/images/{id}", h.AdminDeleteImage)
-		r.Post("/admin/images/{id}/reassign", h.AdminReassignImage)
+		r.Delete(fmt.Sprintf("/admin/images/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.AdminDeleteImage)
+		r.Post(fmt.Sprintf("/admin/images/{id:[a-zA-Z0-9]{%d,}}/reassign", cfg.ID.Length), h.AdminReassignImage)
 	})
 
 	// Image view routes. GET /{id} and GET /{id}.png are rate-limited — the

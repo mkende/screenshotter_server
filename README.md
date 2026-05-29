@@ -174,6 +174,11 @@ production builds simultaneously.
 - **`favicon_path`** — Path to a custom favicon file.
 - **`trusted_proxy`** — CIDRs of reverse proxies whose forwarding headers are
   trusted. Required when using the Tailscale or proxy auth backends.
+- **`source_url_schemes`** — Allowlist of URL schemes accepted for an image's
+  source URL. Default: `["http", "https"]`. Add entries such as `file` or
+  `ftp` as needed; an empty list disables source URLs. The dangerous schemes
+  `javascript`, `data`, and `vbscript` are always rejected and listing one is a
+  startup error.
 - **`server.max_upload_mb`** — Maximum upload size in megabytes. Default: `4`.
 - **`server.assets_path`** — Optional directory of static assets. When set,
   `/favicon.ico` is served from `<assets_path>/favicon.ico` unless overridden

@@ -42,7 +42,7 @@ func SecurityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 			ctx := context.WithValue(r.Context(), nonceKey{}, nonce)
 
 			h := w.Header()
-			h.Set("X-Frame-Options", "SAMEORIGIN")
+			h.Set("X-Frame-Options", "DENY")
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			h.Set("Content-Security-Policy",
@@ -55,7 +55,7 @@ func SecurityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 					"object-src 'none'; "+
 					"base-uri 'self'; "+
 					"form-action 'self'; "+
-					"frame-ancestors 'self'")
+					"frame-ancestors 'none'")
 			if httpsOnly {
 				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 			}

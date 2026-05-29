@@ -4,9 +4,12 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/config"
@@ -15,6 +18,10 @@ import (
 	"github.com/mkende/screenshotter/server/internal/storage"
 	"github.com/mkende/screenshotter/server/internal/version"
 )
+
+// errSourceURLScheme is returned by parseSourceURL when a non-empty source URL
+// uses a scheme that is not in the configured allowlist.
+var errSourceURLScheme = errors.New("source_url scheme is not allowed")
 
 // Handlers holds shared dependencies for all HTTP handlers.
 type Handlers struct {
@@ -98,4 +105,28 @@ func (h *Handlers) renderTemplate(w http.ResponseWriter, page string, data any) 
 // upsertUser ensures the authenticated user exists in the DB.
 func (h *Handlers) upsertUser(ctx context.Context, id *auth.Identity) error {
 	return h.db.UpsertUser(ctx, id.Email, id.DisplayName, id.AvatarURL)
+}
+
+// parseSourceURL trims raw and validates its scheme against the configured
+// allowlist (config.SourceURLSchemes). It returns (nil, nil) for an empty
+// value (which clears the field), (ptr, nil) for an allowed URL, or
+// (nil, errSourceURLScheme) when raw is non-empty but its scheme is not
+// allowed. Because config validation strips dangerous schemes from the
+// allowlist, those can never pass here regardless of input.
+func (h *Handlers) parseSourceURL(raw string) (*string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil, nil
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme == "" {
+		return nil, errSourceURLScheme
+	}
+	scheme := strings.ToLower(u.Scheme)
+	for _, allowed := range h.cfg.SourceURLSchemes {
+		if scheme == allowed {
+			return &s, nil
+		}
+	}
+	return nil, errSourceURLScheme
 }

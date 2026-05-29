@@ -226,6 +226,60 @@ func TestLoad_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestLoad_SourceURLSchemesDefault(t *testing.T) {
+	path := writeConfig(t, validBase())
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cfg.SourceURLSchemes; len(got) != 2 || got[0] != "http" || got[1] != "https" {
+		t.Errorf("expected default source_url_schemes [http https], got %v", got)
+	}
+}
+
+func TestLoad_SourceURLSchemesNormalised(t *testing.T) {
+	toml := validBaseWith(`source_url_schemes = ["HTTP", "https", "File", "https"]
+`)
+	path := writeConfig(t, toml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"http", "https", "file"}
+	if len(cfg.SourceURLSchemes) != len(want) {
+		t.Fatalf("expected %v, got %v", want, cfg.SourceURLSchemes)
+	}
+	for i, s := range want {
+		if cfg.SourceURLSchemes[i] != s {
+			t.Fatalf("expected %v, got %v", want, cfg.SourceURLSchemes)
+		}
+	}
+}
+
+func TestLoad_SourceURLSchemesRejectsDangerous(t *testing.T) {
+	for _, scheme := range []string{"javascript", "DATA", "vbscript"} {
+		toml := validBaseWith(`source_url_schemes = ["http", "` + scheme + `"]
+`)
+		path := writeConfig(t, toml)
+		if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "dangerous") {
+			t.Errorf("scheme %q: expected dangerous-scheme error, got: %v", scheme, err)
+		}
+	}
+}
+
+func TestLoad_SourceURLSchemesEmptyDisables(t *testing.T) {
+	toml := validBaseWith(`source_url_schemes = []
+`)
+	path := writeConfig(t, toml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.SourceURLSchemes) != 0 {
+		t.Errorf("expected empty source_url_schemes, got %v", cfg.SourceURLSchemes)
+	}
+}
+
 func TestLoad_JWTSecretFromEnv(t *testing.T) {
 	t.Setenv("SS_TEST_JWT", "a-secret-that-is-at-least-32-characters-long")
 	toml := validBaseWith(`jwt_secret_env_var = "SS_TEST_JWT"

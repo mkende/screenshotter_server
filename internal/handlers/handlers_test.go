@@ -77,6 +77,7 @@ func newHandlers(t *testing.T) (*Handlers, *db.DB, *storage.Storage) {
 	}
 	cfg.Server.MaxUploadMB = 4
 	cfg.ID.Length = 8
+	cfg.SourceURLSchemes = []string{"http", "https"}
 
 	h := New(cfg, database, stor, minimalTemplates(), nil)
 	return h, database, stor
@@ -228,6 +229,94 @@ func TestUpload_NoIdentity_Returns401(t *testing.T) {
 	rr := executeAnonymous(h.Upload, req)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 without identity, got %d", rr.Code)
+	}
+}
+
+func TestParseSourceURL(t *testing.T) {
+	h, _, _ := newHandlers(t)     // allowlist: http, https
+	hFile, _, _ := newHandlers(t) //
+	hFile.cfg.SourceURLSchemes = []string{"http", "https", "file"}
+	hNone, _, _ := newHandlers(t)    //
+	hNone.cfg.SourceURLSchemes = nil // source URLs disabled
+
+	tests := []struct {
+		name    string
+		h       *Handlers
+		in      string
+		wantPtr string // "" means expect nil pointer
+		wantErr bool
+	}{
+		{"empty clears", h, "  ", "", false},
+		{"https allowed", h, "https://example.com/x", "https://example.com/x", false},
+		{"http allowed", h, "http://example.com", "http://example.com", false},
+		{"trims whitespace", h, "  https://example.com  ", "https://example.com", false},
+		{"javascript rejected", h, "javascript:alert(1)", "", true},
+		{"data rejected", h, "data:text/html,x", "", true},
+		{"file rejected by default", h, "file:///etc/passwd", "", true},
+		{"file allowed when configured", hFile, "file:///home/u/p.html", "file:///home/u/p.html", false},
+		{"scheme-relative rejected", h, "//evil.com", "", true},
+		{"no scheme rejected", h, "example.com/x", "", true},
+		{"disabled rejects any", hNone, "https://example.com", "", true},
+		{"disabled still allows empty", hNone, "", "", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.h.parseSourceURL(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil (ptr=%v)", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantPtr == "" {
+				if got != nil {
+					t.Fatalf("expected nil pointer, got %q", *got)
+				}
+				return
+			}
+			if got == nil || *got != tc.wantPtr {
+				t.Fatalf("expected %q, got %v", tc.wantPtr, got)
+			}
+		})
+	}
+}
+
+func TestUpdate_DisallowedSourceURLScheme_Returns400(t *testing.T) {
+	h, database, stor := newHandlers(t)
+	setupImageForUser(t, database, stor, "img12345", "alice@example.com")
+
+	body := strings.NewReader(`{"source_url":"javascript:alert(1)"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/img12345", body)
+	req = chiRequest(req, map[string]string{"id": "img12345"})
+	rr := executeAs(t, h.Update, req, "alice@example.com")
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestUpload_DisallowedSourceURLScheme_DropsButSucceeds(t *testing.T) {
+	h, database, _ := newHandlers(t)
+	req := buildUploadRequest(t, makePNG(t, 30, 30), "javascript:alert(1)")
+	rr := executeAs(t, h.Upload, req, "bob@example.com")
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	// The stored image must have no source URL (the dangerous scheme was dropped).
+	imgs, err := database.ListRecentImages(context.Background(), "bob@example.com", 10, 0)
+	if err != nil {
+		t.Fatalf("ListRecentImages: %v", err)
+	}
+	if len(imgs) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(imgs))
+	}
+	if imgs[0].SourceURL != nil {
+		t.Errorf("expected nil source_url, got %q", *imgs[0].SourceURL)
 	}
 }
 

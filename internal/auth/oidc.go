@@ -21,6 +21,7 @@ import (
 const (
 	oidcStateCookie    = "oidc_state"
 	oidcVerifierCookie = "oidc_verifier"
+	oidcNonceCookie    = "oidc_nonce"
 	oidcCookieMaxAge   = 600 // 10 minutes
 )
 
@@ -81,6 +82,18 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	setOIDCCookie(w, oidcStateCookie, state, oidcCookieMaxAge)
 
+	// Bind the resulting id_token to this login request with a nonce (OIDC
+	// Core). The nonce is stored in a short-lived cookie and verified against
+	// the id_token's nonce claim in the callback.
+	nonce, err := randomB64(16)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	setOIDCCookie(w, oidcNonceCookie, nonce, oidcCookieMaxAge)
+
+	authOpts := []oauth2.AuthCodeOption{gooidc.Nonce(nonce)}
+
 	// Add PKCE support if enabled
 	if h.cfg.OIDC.UsePKCE {
 		verifier, challenge, err := pkce()
@@ -89,14 +102,13 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		setOIDCCookie(w, oidcVerifierCookie, verifier, oidcCookieMaxAge)
-		http.Redirect(w, r, h.oauth2.AuthCodeURL(state,
+		authOpts = append(authOpts,
 			oauth2.SetAuthURLParam("code_challenge", challenge),
 			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-		), http.StatusFound)
-		return
+		)
 	}
 
-	http.Redirect(w, r, h.oauth2.AuthCodeURL(state), http.StatusFound)
+	http.Redirect(w, r, h.oauth2.AuthCodeURL(state, authOpts...), http.StatusFound)
 }
 
 // HandleCallback completes the OIDC authorization-code + PKCE exchange,
@@ -110,6 +122,7 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	clearOIDCCookie(w, oidcStateCookie)
 	clearOIDCCookie(w, oidcVerifierCookie)
+	clearOIDCCookie(w, oidcNonceCookie)
 
 	// Get PKCE verifier if PKCE is enabled
 	var verifier string
@@ -141,6 +154,13 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	idToken, err := h.verifier.Verify(r.Context(), rawID)
 	if err != nil {
 		http.Error(w, "id_token verification failed", http.StatusUnauthorized)
+		return
+	}
+
+	// Verify the nonce binds this id_token to the login request we initiated.
+	nonceCookie, err := r.Cookie(oidcNonceCookie)
+	if err != nil || idToken.Nonce == "" || idToken.Nonce != nonceCookie.Value {
+		http.Error(w, "invalid nonce", http.StatusBadRequest)
 		return
 	}
 

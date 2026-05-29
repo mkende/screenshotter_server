@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math/big"
 	"net/http"
-	"strings"
 
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/db"
@@ -15,7 +14,7 @@ import (
 )
 
 const (
-	idChars    = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	idChars      = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	maxIDRetries = 3 // maximum attempts to find a collision-free ID
 )
 
@@ -64,9 +63,13 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var sourceURL *string
-	if s := strings.TrimSpace(r.FormValue("source_url")); s != "" {
-		sourceURL = &s
+	// source_url is auto-populated by the extension from the captured tab's URL.
+	// A disallowed scheme is dropped rather than failing the upload, since the
+	// user did not type it and the screenshot itself is still valid.
+	sourceURL, err := h.parseSourceURL(r.FormValue("source_url"))
+	if err != nil {
+		slog.Debug("dropping source_url with disallowed scheme on upload", "err", err)
+		sourceURL = nil
 	}
 
 	if err := h.upsertUser(r.Context(), identity); err != nil {

@@ -66,11 +66,10 @@
         <td style="vertical-align:middle">
           <div class="buttons are-small">
             <a class="button" href="/admin/users/{{.Email}}">Details</a>
-            <button class="button is-danger is-outlined"
+            <button class="button is-danger is-outlined js-delete-user"
               data-email="{{.Email}}"
               data-name="{{.DisplayName}}"
-              data-count="{{.ImageCount}}"
-              onclick="deleteUser(this)">Delete</button>
+              data-count="{{.ImageCount}}">Delete</button>
           </div>
         </td>
       </tr>
@@ -116,5 +115,9 @@ async function deleteUser(btn) {
     alert('Error: ' + (data.error || resp.statusText));
   }
 }
+
+document.querySelectorAll('.js-delete-user').forEach(function (btn) {
+  btn.addEventListener('click', function () { deleteUser(btn); });
+});
 </script>
 {{end}}

@@ -206,6 +206,14 @@ type Config struct {
 	// correctly configured.
 	AdminGroups []string `toml:"admin_groups"`
 
+	// SourceURLSchemes is the allowlist of URL schemes accepted for an image's
+	// source URL (the page a screenshot was taken from). Comparison is
+	// case-insensitive. Defaults to ["http", "https"]; add entries such as
+	// "file" or "ftp" if your users screenshot those. An empty list disables
+	// source URLs entirely. The dangerous schemes "javascript", "data", and
+	// "vbscript" are always rejected and listing one is a startup error.
+	SourceURLSchemes []string `toml:"source_url_schemes"`
+
 	// Anonymous holds settings for anonymous (user-less) authentication.
 	Anonymous AnonymousConfig `toml:"anonymous"`
 
@@ -312,17 +320,17 @@ func Load(path string) (*Config, error) {
 
 func defaults() *Config {
 	return &Config{
-		ListenAddr:  "0.0.0.0:8080",
-		Title:       "Screenshotter",
-		LogLevel:    "info",
-		Server:      ServerConfig{MaxUploadMB: 4},
+		ListenAddr: "0.0.0.0:8080",
+		Title:      "Screenshotter",
+		LogLevel:   "info",
+		Server:     ServerConfig{MaxUploadMB: 4},
 		Session: SessionConfig{
 			TTL:          TOMLDuration{7 * 24 * time.Hour},
 			RenewalDelay: TOMLDuration{time.Hour},
 		},
-		ID:          IDConfig{Length: 8},
-		Home:        HomeConfig{Cols: 5, PageSize: 20},
-		RateLimit:   RateLimitConfig{RequestsPerSecond: 6, RequestsPerMinute: 60},
+		ID:        IDConfig{Length: 8},
+		Home:      HomeConfig{Cols: 5, PageSize: 20},
+		RateLimit: RateLimitConfig{RequestsPerSecond: 6, RequestsPerMinute: 60},
 		ProxyAuth: ProxyAuthConfig{
 			UserHeader:   "Remote-User",
 			EmailHeader:  "Remote-Email",
@@ -334,8 +342,17 @@ func defaults() *Config {
 			GroupsClaim:          "groups",
 			RequireEmailVerified: true,
 		},
-		DB: DBConfig{Driver: "sqlite"},
+		DB:               DBConfig{Driver: "sqlite"},
+		SourceURLSchemes: []string{"http", "https"},
 	}
+}
+
+// dangerousSchemes are URL schemes that must never appear in an href and are
+// therefore always rejected from the source_url allowlist.
+var dangerousSchemes = map[string]struct{}{
+	"javascript": {},
+	"data":       {},
+	"vbscript":   {},
 }
 
 // resolveSecret reads a secret either directly or from an environment
@@ -453,6 +470,26 @@ func validate(c *Config) error {
 	if c.Home.PageSize < 1 {
 		return fmt.Errorf("home.page_size must be at least 1, got %d", c.Home.PageSize)
 	}
+
+	// source_url_schemes: normalise to lower-case, deduplicate, and reject any
+	// dangerous scheme. An empty list is valid and disables source URLs.
+	seen := make(map[string]struct{}, len(c.SourceURLSchemes))
+	normalized := make([]string, 0, len(c.SourceURLSchemes))
+	for _, s := range c.SourceURLSchemes {
+		scheme := strings.ToLower(strings.TrimSpace(s))
+		if scheme == "" {
+			return errors.New("source_url_schemes must not contain empty entries")
+		}
+		if _, bad := dangerousSchemes[scheme]; bad {
+			return fmt.Errorf("source_url_schemes must not contain the dangerous scheme %q", scheme)
+		}
+		if _, dup := seen[scheme]; dup {
+			continue
+		}
+		seen[scheme] = struct{}{}
+		normalized = append(normalized, scheme)
+	}
+	c.SourceURLSchemes = normalized
 
 	// log_level
 	switch c.LogLevel {

@@ -41,6 +41,13 @@ canonical_address = "https://screenshots.example.com"
 # admin_emails = ["alice@example.com"]
 # admin_groups = ["screenshotter-admins"]
 
+# Allowlist of URL schemes accepted for an image's source URL (the page a
+# screenshot was taken from). Case-insensitive. Defaults to ["http", "https"];
+# add "file", "ftp", etc. if your users screenshot those. An empty list ([])
+# disables source URLs entirely. The dangerous schemes "javascript", "data",
+# and "vbscript" are always rejected and listing one is a startup error.
+# source_url_schemes = ["http", "https"]
+
 # ---------------------------------------------------------------------------
 # Server (storage & upload limits)
 # ---------------------------------------------------------------------------

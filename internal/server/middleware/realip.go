@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
 	"strings"
 
@@ -40,7 +41,7 @@ func TrustedRealIP(cfg *config.Config) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(nets) > 0 {
 				if ip := auth.PeerIP(r); ip != nil && auth.IPInRanges(ip, nets) {
-					if realIP := extractForwardedIP(r); realIP != "" {
+					if realIP := extractForwardedIP(r, nets); realIP != "" {
 						r.RemoteAddr = realIP
 					}
 				}
@@ -50,21 +51,41 @@ func TrustedRealIP(cfg *config.Config) func(http.Handler) http.Handler {
 	}
 }
 
-// extractForwardedIP returns the client IP as reported by the proxy, or "" if
-// no forwarding header is set. Checks True-Client-IP, then X-Real-IP, then the
-// leftmost entry of X-Forwarded-For.
-func extractForwardedIP(r *http.Request) string {
+// extractForwardedIP returns the originating client IP as reported by the
+// proxy chain, or "" if no usable forwarding header is set.
+//
+// X-Forwarded-For is treated as authoritative: each well-behaved proxy appends
+// the address it received the connection from, so the chain reads
+// left-to-right as [spoofable client input..., real client, proxy1, proxy2].
+// We scan right-to-left and return the first entry that is NOT itself a trusted
+// proxy. With a single proxy hop this is the rightmost entry; with several it
+// correctly skips the internal hops and stops at the real client, while any
+// client-prepended values stay to the left of the real client and are never
+// reached. This makes the value unspoofable as long as every proxy hop's
+// address is listed in trusted_proxy.
+//
+// When X-Forwarded-For is absent (or contains only trusted addresses) we fall
+// back to the single-value headers a trusted proxy may set instead.
+func extractForwardedIP(r *http.Request, trustedNets []*net.IPNet) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		for i := len(parts) - 1; i >= 0; i-- {
+			ip := strings.TrimSpace(parts[i])
+			parsed := net.ParseIP(ip)
+			if parsed == nil {
+				continue
+			}
+			if auth.IPInRanges(parsed, trustedNets) {
+				continue
+			}
+			return ip
+		}
+	}
 	if ip := strings.TrimSpace(r.Header.Get("True-Client-IP")); ip != "" {
 		return ip
 	}
 	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
 		return ip
-	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
 	}
 	return ""
 }
