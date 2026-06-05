@@ -24,6 +24,17 @@ check-format:
 deps:
     go mod download
 
+# Scan dependencies for known vulnerabilities (same pinned tool as CI).
+audit:
+    go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
+
+# Update dependencies to their latest patch releases, then tidy and verify.
+# Review the go.mod/go.sum diff and run the tests before committing.
+update:
+    go get -u=patch ./...
+    go mod tidy
+    go mod verify
+
 alias all := build
 
 # Build the screenshotter binary.
