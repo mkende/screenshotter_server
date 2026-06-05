@@ -21,9 +21,10 @@ on:
 # Run for pushes, manual dispatch, and the gated external call (which arrives as
 # pull_request_target — only reachable through test-external.yml, which has
 # already checked the label). For direct pull_request events, only run
-# automatically for repo owners, members, and collaborators; external
-# contributors' PRs require the 'safe-to-test' label. This prevents CI abuse
-# from forks while keeping the suite runnable externally once approved.
+# automatically when the author is a repo owner/member/collaborator AND the head
+# branch lives in this repo (not a fork); everything else requires the
+# 'safe-to-test' label. This prevents CI abuse from forks while keeping the suite
+# runnable externally once approved.
 
 jobs:
   server:
@@ -31,7 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
+      (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association) &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     permissions:
       contents: read
     steps:
