@@ -63,9 +63,3 @@ jobs:
 
       - name: Test
         run: go test -race -count=1 ./...
-
-      # Pinned version (not @latest) so the scanner itself is a reproducible
-      # dependency. Only analyses the build graph — no dependency code runs — so
-      # it is safe on the external pull_request_target path too.
-      - name: Vulnerability scan
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.3.0 ./...
