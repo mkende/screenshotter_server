@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"image"
 	"image/color"
@@ -11,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -256,6 +258,7 @@ func TestParseSourceURL(t *testing.T) {
 		{"file allowed when configured", hFile, "file:///home/u/p.html", "file:///home/u/p.html", false},
 		{"scheme-relative rejected", h, "//evil.com", "", true},
 		{"no scheme rejected", h, "example.com/x", "", true},
+		{"invalid utf-8 rejected", h, "https://example.com/\xff", "", true},
 		{"disabled rejects any", hNone, "https://example.com", "", true},
 		{"disabled still allows empty", hNone, "", "", false},
 	}
@@ -308,6 +311,36 @@ func TestUpload_DisallowedSourceURLScheme_DropsButSucceeds(t *testing.T) {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 	// The stored image must have no source URL (the dangerous scheme was dropped).
+	imgs, err := database.ListRecentImages(context.Background(), "bob@example.com", 10, 0)
+	if err != nil {
+		t.Fatalf("ListRecentImages: %v", err)
+	}
+	if len(imgs) != 1 {
+		t.Fatalf("expected 1 image, got %d", len(imgs))
+	}
+	if imgs[0].SourceURL != nil {
+		t.Errorf("expected nil source_url, got %q", *imgs[0].SourceURL)
+	}
+}
+
+func TestParseSourceURL_InvalidUTF8ReturnsSpecificError(t *testing.T) {
+	h, _, _ := newHandlers(t)
+	_, err := h.parseSourceURL("https://example.com/\xff")
+	if !errors.Is(err, errSourceURLNotUTF8) {
+		t.Fatalf("expected errSourceURLNotUTF8, got %v", err)
+	}
+}
+
+func TestUpload_InvalidUTF8SourceURL_DropsButSucceeds(t *testing.T) {
+	h, database, _ := newHandlers(t)
+	// A multipart form value carries raw bytes (unlike JSON, which substitutes
+	// U+FFFD), so invalid UTF-8 reaches the handler intact and must be dropped.
+	req := buildUploadRequest(t, makePNG(t, 30, 30), "https://example.com/\xff")
+	rr := executeAs(t, h.Upload, req, "bob@example.com")
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
 	imgs, err := database.ListRecentImages(context.Background(), "bob@example.com", 10, 0)
 	if err != nil {
 		t.Fatalf("ListRecentImages: %v", err)
@@ -426,6 +459,57 @@ func TestView_UnauthenticatedAllowed(t *testing.T) {
 	rr := executeAnonymous(h.View, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200 for anonymous viewer, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---- ServeImage metadata header tests --------------------------------------
+
+func TestServeImage_SetsMetadataHeaders(t *testing.T) {
+	h, database, stor := newHandlers(t)
+	setupImageForUser(t, database, stor, "img-meta1", "owner@example.com")
+	// setupImageForUser sets SourceURL but no title; add a title with characters
+	// that must be percent-encoded to stay a valid header value.
+	title := "Café & co\nline"
+	src := "https://example.com/a b?q=1"
+	if _, err := database.UpdateImage(context.Background(), "img-meta1", "owner@example.com", &title, &src); err != nil {
+		t.Fatalf("UpdateImage: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/img-meta1.png", nil)
+	req = chiRequest(req, map[string]string{"id": "img-meta1"})
+
+	rr := executeAnonymous(h.ServeImage, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if got, want := rr.Header().Get("X-Screenshot-Title"), url.QueryEscape(title); got != want {
+		t.Errorf("X-Screenshot-Title = %q, want %q", got, want)
+	}
+	if got, want := rr.Header().Get("X-Screenshot-Source-Url"), url.QueryEscape(src); got != want {
+		t.Errorf("X-Screenshot-Source-Url = %q, want %q", got, want)
+	}
+}
+
+func TestServeImage_OmitsHeadersWhenMetadataAbsent(t *testing.T) {
+	h, database, stor := newHandlers(t)
+	setupImageForUser(t, database, stor, "img-meta2", "owner@example.com")
+	// Clear the source URL set by setupImageForUser so neither field is present.
+	if _, err := database.UpdateImage(context.Background(), "img-meta2", "owner@example.com", nil, nil); err != nil {
+		t.Fatalf("UpdateImage: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/img-meta2.png", nil)
+	req = chiRequest(req, map[string]string{"id": "img-meta2"})
+
+	rr := executeAnonymous(h.ServeImage, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok := rr.Header()["X-Screenshot-Title"]; ok {
+		t.Error("X-Screenshot-Title should be absent when no title is set")
+	}
+	if _, ok := rr.Header()["X-Screenshot-Source-Url"]; ok {
+		t.Error("X-Screenshot-Source-Url should be absent when no source URL is set")
 	}
 }
 

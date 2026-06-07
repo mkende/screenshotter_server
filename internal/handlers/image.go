@@ -3,6 +3,7 @@ package handlers
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/go-chi/chi/v5"
@@ -51,6 +52,17 @@ func (h *Handlers) serveFile(w http.ResponseWriter, r *http.Request, id, path st
 	if img == nil {
 		http.NotFound(w, r)
 		return
+	}
+	// Expose the screenshot metadata as headers so clients fetching the raw PNG
+	// can read the title and origin without a second request. Values are
+	// percent-encoded so arbitrary user text stays a valid (ASCII) header value;
+	// since both fields are validated as UTF-8 at write time (see Update and
+	// parseSourceURL), the percent-decoded value is always valid UTF-8.
+	if img.Title != nil {
+		w.Header().Set("X-Screenshot-Title", url.QueryEscape(*img.Title))
+	}
+	if img.SourceURL != nil {
+		w.Header().Set("X-Screenshot-Source-Url", url.QueryEscape(*img.SourceURL))
 	}
 	h.serveFilePath(w, r, id, path)
 }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/config"
@@ -22,6 +23,12 @@ import (
 // errSourceURLScheme is returned by parseSourceURL when a non-empty source URL
 // uses a scheme that is not in the configured allowlist.
 var errSourceURLScheme = errors.New("source_url scheme is not allowed")
+
+// errSourceURLNotUTF8 is returned by parseSourceURL when a non-empty source URL
+// is not valid UTF-8. We require valid UTF-8 so the stored value (and the
+// X-Screenshot-Source-Url response header derived from it) is always decodable
+// as Unicode.
+var errSourceURLNotUTF8 = errors.New("source_url is not valid UTF-8")
 
 // Handlers holds shared dependencies for all HTTP handlers.
 type Handlers struct {
@@ -107,16 +114,19 @@ func (h *Handlers) upsertUser(ctx context.Context, id *auth.Identity) error {
 	return h.db.UpsertUser(ctx, id.Email, id.DisplayName, id.AvatarURL)
 }
 
-// parseSourceURL trims raw and validates its scheme against the configured
-// allowlist (config.SourceURLSchemes). It returns (nil, nil) for an empty
-// value (which clears the field), (ptr, nil) for an allowed URL, or
-// (nil, errSourceURLScheme) when raw is non-empty but its scheme is not
-// allowed. Because config validation strips dangerous schemes from the
-// allowlist, those can never pass here regardless of input.
+// parseSourceURL trims raw and validates it. It returns (nil, nil) for an empty
+// value (which clears the field), (ptr, nil) for an allowed URL,
+// (nil, errSourceURLNotUTF8) when raw is non-empty but not valid UTF-8, or
+// (nil, errSourceURLScheme) when its scheme is not in the configured allowlist
+// (config.SourceURLSchemes). Because config validation strips dangerous schemes
+// from the allowlist, those can never pass here regardless of input.
 func (h *Handlers) parseSourceURL(raw string) (*string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return nil, nil
+	}
+	if !utf8.ValidString(s) {
+		return nil, errSourceURLNotUTF8
 	}
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme == "" {

@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mkende/screenshotter/server/internal/auth"
@@ -33,6 +35,14 @@ func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Title = strings.TrimSpace(req.Title)
+	// Require valid UTF-8 so the stored title (and the X-Screenshot-Title header
+	// derived from it) is always decodable as Unicode. JSON decoding already
+	// substitutes U+FFFD for invalid bytes, so this is a defensive guard that
+	// also covers any future non-JSON write path.
+	if !utf8.ValidString(req.Title) {
+		writeJSONError(w, http.StatusBadRequest, "title is not valid UTF-8")
+		return
+	}
 	var title *string
 	if req.Title != "" {
 		title = &req.Title
@@ -40,7 +50,11 @@ func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 
 	sourceURL, err := h.parseSourceURL(req.SourceURL)
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "source_url uses a scheme that is not allowed")
+		msg := "source_url uses a scheme that is not allowed"
+		if errors.Is(err, errSourceURLNotUTF8) {
+			msg = "source_url is not valid UTF-8"
+		}
+		writeJSONError(w, http.StatusBadRequest, msg)
 		return
 	}
 
