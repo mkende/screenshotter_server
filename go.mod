@@ -1,6 +1,6 @@
 module github.com/mkende/screenshotter/server
 
-go 1.24.0
+go 1.25.0
 
 toolchain go1.26.4
 
@@ -13,7 +13,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.18.1
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.24
-	golang.org/x/image v0.24.0
+	golang.org/x/image v0.45.0
 	golang.org/x/oauth2 v0.28.0
 )
 
