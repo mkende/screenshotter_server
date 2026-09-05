@@ -20,6 +20,23 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// sqliteDriverName is the database/sql driver name registered by init for
+// SQLite connections with foreign-key enforcement enabled.
+const sqliteDriverName = "sqlite3_fk"
+
+func init() {
+	// PRAGMA foreign_keys is per-connection, so enabling it with a one-off
+	// Exec on the pool only affects whichever connection happens to run it;
+	// ON DELETE CASCADE (users → images) would then silently not fire on the
+	// others. A connect hook enables it on every connection the pool opens.
+	sql.Register(sqliteDriverName, &sqlite.SQLiteDriver{
+		ConnectHook: func(c *sqlite.SQLiteConn) error {
+			_, err := c.Exec("PRAGMA foreign_keys = ON", nil)
+			return err
+		},
+	})
+}
+
 // DB wraps sql.DB with typed query methods.
 type DB struct {
 	sql     *sql.DB
@@ -30,8 +47,7 @@ type DB struct {
 func Open(backend, dsn string) (*DB, error) {
 	driverName := backend
 	if backend == "sqlite" {
-		// mattn/go-sqlite3 registers as "sqlite3"
-		driverName = "sqlite3"
+		driverName = sqliteDriverName
 	}
 	sqlDB, err := sql.Open(driverName, dsn)
 	if err != nil {
@@ -42,7 +58,9 @@ func Open(backend, dsn string) (*DB, error) {
 		return nil, fmt.Errorf("ping db: %w", err)
 	}
 	if backend == "sqlite" {
-		if _, err := sqlDB.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`); err != nil {
+		// The journal mode is stored in the database file, so setting it once
+		// is enough (unlike foreign_keys, see init).
+		if _, err := sqlDB.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 			sqlDB.Close()
 			return nil, fmt.Errorf("sqlite pragmas: %w", err)
 		}

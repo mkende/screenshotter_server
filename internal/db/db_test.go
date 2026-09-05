@@ -90,7 +90,9 @@ func allBackends(t *testing.T) []testBackend {
 
 func openSQLiteDB(t *testing.T) *DB {
 	t.Helper()
-	d, err := Open("sqlite", "file::memory:?cache=shared&_foreign_keys=on")
+	// No _foreign_keys DSN parameter: the tests must exercise the same
+	// foreign-key setup that production DSNs (a plain file path) get.
+	d, err := Open("sqlite", "file::memory:?cache=shared")
 	if err != nil {
 		t.Fatalf("open sqlite test database: %v", err)
 	}
