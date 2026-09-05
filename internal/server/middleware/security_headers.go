@@ -49,7 +49,10 @@ func SecurityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 				"default-src 'self'; "+
 					"script-src 'self' 'nonce-"+nonce+"'; "+
 					"style-src 'self' 'unsafe-inline'; "+
-					"img-src 'self' data: blob:; "+
+					// https: lets user avatars, which are URLs on the identity
+					// provider (OIDC picture claim, Tailscale profile pic), render
+					// on the admin pages.
+					"img-src 'self' data: blob: https:; "+
 					"connect-src 'self'; "+
 					"font-src 'self' data:; "+
 					"object-src 'none'; "+
