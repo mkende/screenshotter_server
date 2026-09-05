@@ -10,6 +10,7 @@ import (
 
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/db"
+	"github.com/mkende/screenshotter/server/internal/httputil"
 	"github.com/mkende/screenshotter/server/internal/storage"
 )
 
@@ -23,7 +24,7 @@ const (
 func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 	identity := auth.FromContext(r.Context())
 	if identity == nil {
-		writeJSONError(w, http.StatusUnauthorized, "authentication required")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 
@@ -31,14 +32,14 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 
 	if err := r.ParseMultipartForm(maxBytes); err != nil {
-		writeJSONError(w, http.StatusRequestEntityTooLarge, "upload too large or malformed")
+		httputil.WriteJSONError(w, http.StatusRequestEntityTooLarge, "upload too large or malformed")
 		return
 	}
 	defer r.MultipartForm.RemoveAll() //nolint:errcheck
 
 	file, _, err := r.FormFile("image")
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "missing 'image' field")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "missing 'image' field")
 		return
 	}
 	defer file.Close()
@@ -46,20 +47,20 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 	data, err := io.ReadAll(file)
 	if err != nil {
 		slog.Error("read upload", "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := storage.ValidatePNG(data); err != nil {
 		if errors.Is(err, storage.ErrNotPNG) {
-			writeJSONError(w, http.StatusBadRequest, "uploaded file is not a valid PNG image")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "uploaded file is not a valid PNG image")
 			return
 		}
 		if errors.Is(err, storage.ErrImageTooLarge) {
-			writeJSONError(w, http.StatusBadRequest, "image dimensions are too large")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "image dimensions are too large")
 			return
 		}
 		slog.Error("validate image", "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -74,7 +75,7 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.upsertUser(r.Context(), identity); err != nil {
 		slog.Error("upsert user on upload", "email", identity.Email, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -87,7 +88,7 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 		id, err = generateID(h.cfg.ID.Length)
 		if err != nil {
 			slog.Error("generate image id", "err", err)
-			writeJSONError(w, http.StatusInternalServerError, "internal error")
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 		err = h.db.InsertImage(r.Context(), db.Image{
@@ -105,12 +106,12 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		slog.Error("insert image record", "id", id, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to record image")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to record image")
 		return
 	}
 	if !inserted {
 		slog.Error("insert image record: all retries exhausted", "attempts", maxIDRetries)
-		writeJSONError(w, http.StatusInternalServerError, "failed to record image")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to record image")
 		return
 	}
 
@@ -120,16 +121,16 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 		h.db.DeleteImage(r.Context(), id, identity.Email) //nolint:errcheck
 		if errors.Is(err, storage.ErrIDCollision) {
 			slog.Error("save image: file exists despite successful DB insert", "id", id)
-			writeJSONError(w, http.StatusInternalServerError, "internal error")
+			httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 		slog.Error("save image", "id", id, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to save image")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to save image")
 		return
 	}
 
 	redirectURL := h.cfg.CanonicalAddress + "/" + id
-	writeJSON(w, http.StatusOK, map[string]string{"redirect_url": redirectURL})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"redirect_url": redirectURL})
 }
 
 // generateID returns a cryptographically random alphanumeric string of length n.

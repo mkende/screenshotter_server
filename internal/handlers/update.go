@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mkende/screenshotter/server/internal/auth"
+	"github.com/mkende/screenshotter/server/internal/httputil"
 )
 
 type updateRequest struct {
@@ -23,14 +24,14 @@ type updateRequest struct {
 func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 	identity := auth.FromContext(r.Context())
 	if identity == nil {
-		writeJSONError(w, http.StatusUnauthorized, "authentication required")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	id := chi.URLParam(r, "id")
 
 	var req updateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid JSON body")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
@@ -40,7 +41,7 @@ func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 	// substitutes U+FFFD for invalid bytes, so this is a defensive guard that
 	// also covers any future non-JSON write path.
 	if !utf8.ValidString(req.Title) {
-		writeJSONError(w, http.StatusBadRequest, "title is not valid UTF-8")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "title is not valid UTF-8")
 		return
 	}
 	var title *string
@@ -54,20 +55,20 @@ func (h *Handlers) Update(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, errSourceURLNotUTF8) {
 			msg = "source_url is not valid UTF-8"
 		}
-		writeJSONError(w, http.StatusBadRequest, msg)
+		httputil.WriteJSONError(w, http.StatusBadRequest, msg)
 		return
 	}
 
 	updated, err := h.db.UpdateImage(r.Context(), id, identity.Email, title, sourceURL)
 	if err != nil {
 		slog.Error("update image", "id", id, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if !updated {
-		writeJSONError(w, http.StatusNotFound, "image not found or not owned by you")
+		httputil.WriteJSONError(w, http.StatusNotFound, "image not found or not owned by you")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{})
 }

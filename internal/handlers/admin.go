@@ -9,20 +9,21 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mkende/screenshotter/server/internal/db"
+	"github.com/mkende/screenshotter/server/internal/httputil"
 )
 
 const adminPageSize = 50
 
 type adminUsersData struct {
 	pageData
-	Users   []db.UserWithStats
-	Query   string
-	Page    int
+	Users    []db.UserWithStats
+	Query    string
+	Page     int
 	PrevPage int
 	NextPage int
-	HasPrev bool
-	HasNext bool
-	Total   int
+	HasPrev  bool
+	HasNext  bool
+	Total    int
 }
 
 type adminUserDetailData struct {
@@ -123,18 +124,18 @@ func (h *Handlers) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	imageIDs, err := h.db.ListImageIDsByOwner(r.Context(), email)
 	if err != nil {
 		slog.Error("admin list image ids for delete user", "email", email, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	deleted, err := h.db.DeleteUser(r.Context(), email)
 	if err != nil {
 		slog.Error("admin delete user", "email", email, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if !deleted {
-		writeJSONError(w, http.StatusNotFound, "user not found")
+		httputil.WriteJSONError(w, http.StatusNotFound, "user not found")
 		return
 	}
 
@@ -144,7 +145,7 @@ func (h *Handlers) AdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{})
 }
 
 // AdminDeleteImage handles DELETE /admin/images/{id}: deletes any image
@@ -155,11 +156,11 @@ func (h *Handlers) AdminDeleteImage(w http.ResponseWriter, r *http.Request) {
 	deleted, err := h.db.AdminDeleteImage(r.Context(), id)
 	if err != nil {
 		slog.Error("admin delete image", "id", id, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if !deleted {
-		writeJSONError(w, http.StatusNotFound, "image not found")
+		httputil.WriteJSONError(w, http.StatusNotFound, "image not found")
 		return
 	}
 
@@ -167,7 +168,7 @@ func (h *Handlers) AdminDeleteImage(w http.ResponseWriter, r *http.Request) {
 		slog.Error("admin delete image file", "id", id, "err", err)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{})
 }
 
 // AdminReassignImage handles POST /admin/images/{id}/reassign: moves a single
@@ -179,33 +180,33 @@ func (h *Handlers) AdminReassignImage(w http.ResponseWriter, r *http.Request) {
 		To string `json:"to"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.To == "" {
-		writeJSONError(w, http.StatusBadRequest, "missing or invalid 'to' field")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "missing or invalid 'to' field")
 		return
 	}
 
 	target, err := h.db.GetUser(r.Context(), body.To)
 	if err != nil {
 		slog.Error("admin reassign image: get target user", "to", body.To, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if target == nil {
-		writeJSONError(w, http.StatusUnprocessableEntity, "target user not found")
+		httputil.WriteJSONError(w, http.StatusUnprocessableEntity, "target user not found")
 		return
 	}
 
 	ok, err := h.db.ReassignImage(r.Context(), id, body.To)
 	if err != nil {
 		slog.Error("admin reassign image", "id", id, "to", body.To, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if !ok {
-		writeJSONError(w, http.StatusNotFound, "image not found")
+		httputil.WriteJSONError(w, http.StatusNotFound, "image not found")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{})
 }
 
 // AdminReassignAll handles POST /admin/users/{email}/reassign-all: moves all
@@ -217,29 +218,29 @@ func (h *Handlers) AdminReassignAll(w http.ResponseWriter, r *http.Request) {
 		To string `json:"to"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.To == "" {
-		writeJSONError(w, http.StatusBadRequest, "missing or invalid 'to' field")
+		httputil.WriteJSONError(w, http.StatusBadRequest, "missing or invalid 'to' field")
 		return
 	}
 
 	target, err := h.db.GetUser(r.Context(), body.To)
 	if err != nil {
 		slog.Error("admin reassign all: get target user", "to", body.To, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if target == nil {
-		writeJSONError(w, http.StatusUnprocessableEntity, "target user not found")
+		httputil.WriteJSONError(w, http.StatusUnprocessableEntity, "target user not found")
 		return
 	}
 
 	n, err := h.db.ReassignAllImages(r.Context(), email, body.To)
 	if err != nil {
 		slog.Error("admin reassign all images", "from", email, "to", body.To, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]int64{"moved": n})
+	httputil.WriteJSON(w, http.StatusOK, map[string]int64{"moved": n})
 }
 
 // adminEmailParam extracts and URL-path-unescapes the {email} chi URL param.

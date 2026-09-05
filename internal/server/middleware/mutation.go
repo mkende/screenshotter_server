@@ -1,6 +1,10 @@
 package middleware
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/mkende/screenshotter/server/internal/httputil"
+)
 
 // MutationHeader is the custom request header that all state-changing requests
 // must carry. Its presence forces a CORS preflight on cross-origin requests,
@@ -23,7 +27,7 @@ func RequireMutationHeader(next http.Handler) http.Handler {
 			return
 		}
 		if r.Header.Get(MutationHeader) == "" {
-			writeJSONError(w, http.StatusForbidden, "missing "+MutationHeader+" header")
+			httputil.WriteJSONError(w, http.StatusForbidden, "missing "+MutationHeader+" header")
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -1,12 +1,12 @@
 package auth
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter/server/internal/httputil"
 )
 
 // isAPIRequest reports whether the request is one that expects a JSON
@@ -34,13 +34,6 @@ func isAPIRequest(r *http.Request) bool {
 	return false
 }
 
-// writeJSONError writes a JSON {"error": message} response.
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": message}) //nolint:errcheck
-}
-
 // LoginRedirect redirects the user to the OIDC login page, encoding the
 // current request URI as the ?rd= post-login destination.
 func LoginRedirect(w http.ResponseWriter, r *http.Request) {
@@ -62,15 +55,12 @@ func RequireAuth(cfg *config.Config) func(http.Handler) http.Handler {
 			}
 			if isAPIRequest(r) {
 				if cfg.OIDC.Enabled {
-					loginURL := strings.TrimRight(cfg.CanonicalAddress, "/") + "/auth/login?rd=/auth/done"
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusUnauthorized)
-					json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+					httputil.WriteJSON(w, http.StatusUnauthorized, map[string]string{
 						"error":     "authentication required",
-						"login_url": loginURL,
+						"login_url": strings.TrimRight(cfg.CanonicalAddress, "/") + "/auth/login?rd=/auth/done",
 					})
 				} else {
-					writeJSONError(w, http.StatusUnauthorized, "authentication required")
+					httputil.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 				}
 				return
 			}
@@ -95,7 +85,7 @@ func RequireAdmin(deniedHandler http.Handler) func(http.Handler) http.Handler {
 				return
 			}
 			if isAPIRequest(r) {
-				writeJSONError(w, http.StatusForbidden, "admin privileges required")
+				httputil.WriteJSONError(w, http.StatusForbidden, "admin privileges required")
 				return
 			}
 			deniedHandler.ServeHTTP(w, r)

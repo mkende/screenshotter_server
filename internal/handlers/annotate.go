@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/mkende/screenshotter/server/internal/auth"
 	"github.com/mkende/screenshotter/server/internal/db"
+	"github.com/mkende/screenshotter/server/internal/httputil"
 	"github.com/mkende/screenshotter/server/internal/storage"
 )
 
@@ -50,7 +51,7 @@ func (h *Handlers) AnnotateView(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) Annotate(w http.ResponseWriter, r *http.Request) {
 	identity := auth.FromContext(r.Context())
 	if identity == nil {
-		writeJSONError(w, http.StatusUnauthorized, "authentication required")
+		httputil.WriteJSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -58,15 +59,15 @@ func (h *Handlers) Annotate(w http.ResponseWriter, r *http.Request) {
 	img, err := h.db.GetImage(r.Context(), id)
 	if err != nil {
 		slog.Error("get image for annotate save", "id", id, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if img == nil {
-		writeJSONError(w, http.StatusNotFound, "image not found")
+		httputil.WriteJSONError(w, http.StatusNotFound, "image not found")
 		return
 	}
 	if img.OwnerID != identity.Email {
-		writeJSONError(w, http.StatusForbidden, "not the owner of this image")
+		httputil.WriteJSONError(w, http.StatusForbidden, "not the owner of this image")
 		return
 	}
 
@@ -75,17 +76,17 @@ func (h *Handlers) Annotate(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.storage.Save(id, r.Body); err != nil {
 		if errors.Is(err, storage.ErrNotPNG) {
-			writeJSONError(w, http.StatusBadRequest, "uploaded file is not a valid PNG image")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "uploaded file is not a valid PNG image")
 			return
 		}
 		if errors.Is(err, storage.ErrImageTooLarge) {
-			writeJSONError(w, http.StatusBadRequest, "image dimensions are too large")
+			httputil.WriteJSONError(w, http.StatusBadRequest, "image dimensions are too large")
 			return
 		}
 		slog.Error("save annotated image", "id", id, "err", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to save annotated image")
+		httputil.WriteJSONError(w, http.StatusInternalServerError, "failed to save annotated image")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{})
 }

@@ -1,11 +1,11 @@
 package middleware
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/url"
 
 	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter/server/internal/httputil"
 )
 
 // RequireSameOriginOrExtension returns middleware that rejects requests whose
@@ -34,7 +34,7 @@ func RequireSameOriginOrExtension(cfg *config.Config) func(http.Handler) http.Ha
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 			if origin == "" {
-				writeJSONError(w, http.StatusForbidden, "missing Origin header")
+				httputil.WriteJSONError(w, http.StatusForbidden, "missing Origin header")
 				return
 			}
 			if _, ok := allowed[origin]; ok {
@@ -49,13 +49,7 @@ func RequireSameOriginOrExtension(cfg *config.Config) func(http.Handler) http.Ha
 					return
 				}
 			}
-			writeJSONError(w, http.StatusForbidden, "cross-origin request not allowed")
+			httputil.WriteJSONError(w, http.StatusForbidden, "cross-origin request not allowed")
 		})
 	}
-}
-
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": message}) //nolint:errcheck
 }

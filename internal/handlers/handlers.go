@@ -3,7 +3,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"html/template"
 	"log/slog"
@@ -55,20 +54,6 @@ func (h *Handlers) ServeFont(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "font/ttf")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Write(h.fontTTF) //nolint:errcheck
-}
-
-// writeJSON writes a JSON response with the given status code.
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("write json response", "err", err)
-	}
-}
-
-// writeJSONError writes a JSON error response.
-func writeJSONError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
 }
 
 // pageData is the common set of fields included on every rendered page. Page
