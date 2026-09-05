@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -72,13 +73,8 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Encode the post-login destination into the state so it survives the
-	// round-trip to the OIDC provider. Format: "<random>|<rd>". Reject
-	// protocol-relative URLs and off-site hrefs.
-	rd := r.URL.Query().Get("rd")
-	if rd == "" || !strings.HasPrefix(rd, "/") || strings.HasPrefix(rd, "//") {
-		rd = "/"
-	}
-	state := random + "|" + rd
+	// round-trip to the OIDC provider. Format: "<random>|<rd>".
+	state := random + "|" + safeRedirectPath(r.URL.Query().Get("rd"))
 
 	setOIDCCookie(w, oidcStateCookie, state, oidcCookieMaxAge)
 
@@ -213,14 +209,30 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract the post-login destination from the state.
+	// Extract the post-login destination from the state. The value was
+	// validated by HandleLogin, but re-check it so the callback never trusts
+	// the cookie contents on its own.
 	dest := "/"
 	if parts := strings.SplitN(stateCookie.Value, "|", 2); len(parts) == 2 {
-		if rd := parts[1]; strings.HasPrefix(rd, "/") && !strings.HasPrefix(rd, "//") {
-			dest = rd
-		}
+		dest = safeRedirectPath(parts[1])
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
+}
+
+// safeRedirectPath returns rd if it is a safe same-site destination for a
+// post-login redirect, or "/" otherwise. Safe means an absolute path
+// ("/..."): no scheme, no host, not protocol-relative ("//host"), and no
+// backslash — browsers normalise "\" to "/" in URLs, so "/\evil.com" would
+// otherwise be treated as "//evil.com" and become an open redirect.
+func safeRedirectPath(rd string) string {
+	if rd == "" || rd[0] != '/' || strings.HasPrefix(rd, "//") || strings.ContainsAny(rd, "\\") {
+		return "/"
+	}
+	u, err := url.Parse(rd)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.Opaque != "" {
+		return "/"
+	}
+	return rd
 }
 
 // HandleLogout clears the session cookie and redirects to home.
