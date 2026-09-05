@@ -2,7 +2,6 @@ package auth
 
 import (
 	"log/slog"
-	"net"
 	"net/http"
 
 	"github.com/mkende/screenshotter/server/internal/config"
@@ -23,14 +22,7 @@ func TailscaleMiddleware(cfg *config.Config, logger *slog.Logger) func(http.Hand
 	if logger == nil {
 		logger = slog.Default()
 	}
-	var trustedNets []*net.IPNet
-	if len(cfg.TrustedProxy) > 0 {
-		nets, err := ParseCIDRs(cfg.TrustedProxy)
-		if err != nil {
-			panic("tailscale: invalid trusted_proxy in config: " + err.Error())
-		}
-		trustedNets = nets
-	}
+	trustedNets := TrustedProxyNets(cfg)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

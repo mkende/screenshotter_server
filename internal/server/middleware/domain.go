@@ -53,15 +53,7 @@ func RedirectToCanonical(cfg *config.Config, trustedNets []*net.IPNet, w http.Re
 // DomainRedirect returns middleware that redirects any request not on the
 // canonical address to that address (301), preserving path and query.
 func DomainRedirect(cfg *config.Config) func(http.Handler) http.Handler {
-	var trustedNets []*net.IPNet
-	if len(cfg.TrustedProxy) > 0 {
-		nets, err := auth.ParseCIDRs(cfg.TrustedProxy)
-		if err != nil {
-			panic("domain: invalid trusted_proxy in config: " + err.Error())
-		}
-		trustedNets = nets
-	}
-
+	trustedNets := auth.TrustedProxyNets(cfg)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !RedirectToCanonical(cfg, trustedNets, w, r) {

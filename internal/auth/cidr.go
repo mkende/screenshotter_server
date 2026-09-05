@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"net/http"
+
+	"github.com/mkende/screenshotter/server/internal/config"
 )
 
 // WithOriginalRemoteAddr returns a context carrying the raw TCP remote address.
@@ -32,6 +34,18 @@ func ParseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 		nets = append(nets, ipnet)
 	}
 	return nets, nil
+}
+
+// TrustedProxyNets returns cfg.TrustedProxy parsed as networks. Config
+// validation already rejects invalid CIDRs, so a parse failure here is a
+// programming error and panics. Returns an empty list when no proxies are
+// configured.
+func TrustedProxyNets(cfg *config.Config) []*net.IPNet {
+	nets, err := ParseCIDRs(cfg.TrustedProxy)
+	if err != nil {
+		panic("invalid trusted_proxy in config: " + err.Error())
+	}
+	return nets
 }
 
 // IPInRanges reports whether ip falls within any of the provided networks.

@@ -33,10 +33,7 @@ func PreserveRemoteAddr(next http.Handler) http.Handler {
 // PreserveRemoteAddr must run before this middleware so that the original TCP
 // peer is preserved for auth providers that do CIDR checks.
 func TrustedRealIP(cfg *config.Config) func(http.Handler) http.Handler {
-	nets, err := auth.ParseCIDRs(cfg.TrustedProxy)
-	if err != nil {
-		panic("realip: invalid trusted_proxy in config: " + err.Error())
-	}
+	nets := auth.TrustedProxyNets(cfg)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(nets) > 0 {
