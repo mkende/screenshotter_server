@@ -263,3 +263,176 @@ func TestNew_CreatesDirectories(t *testing.T) {
 		t.Errorf("thumbs dir not created: %v", err)
 	}
 }
+
+// corruptPNG returns bytes that pass the signature and IHDR dimension checks
+// but fail to decode (garbage chunk data).
+func corruptPNG(w, h uint32) []byte {
+	data := make([]byte, 64)
+	copy(data, pngMagic)
+	binary.BigEndian.PutUint32(data[ihdrWidthOffset:], w)
+	binary.BigEndian.PutUint32(data[ihdrWidthOffset+4:], h)
+	return data
+}
+
+// tempFiles returns the names of any in-progress temp files left under the
+// storage root (image and thumbs directories).
+func tempFiles(t *testing.T, s *Storage) []string {
+	t.Helper()
+	var found []string
+	for _, dir := range []string{s.base, filepath.Join(s.base, "thumbs")} {
+		matches, err := filepath.Glob(filepath.Join(dir, tempPattern))
+		if err != nil {
+			t.Fatalf("glob: %v", err)
+		}
+		found = append(found, matches...)
+	}
+	return found
+}
+
+// TestSave_UndecodablePNG_KeepsExistingFiles verifies that replacing an image
+// with a PNG that passes the header checks but fails to decode leaves the
+// previous image and thumbnail untouched (regression: the original was deleted).
+func TestSave_UndecodablePNG_KeepsExistingFiles(t *testing.T) {
+	s := newTestStorage(t)
+	id := "keep1234"
+	original := makePNG(t, 40, 30)
+	if err := s.SaveNew(id, original); err != nil {
+		t.Fatalf("SaveNew: %v", err)
+	}
+	origThumb, err := os.ReadFile(s.ThumbPath(id))
+	if err != nil {
+		t.Fatalf("read thumb: %v", err)
+	}
+
+	err = s.Save(id, bytes.NewReader(corruptPNG(40, 30)))
+	if err == nil {
+		t.Fatal("expected Save to fail for undecodable PNG")
+	}
+	if errors.Is(err, ErrNotPNG) || errors.Is(err, ErrImageTooLarge) {
+		t.Fatalf("expected a decode error, got %v", err)
+	}
+
+	got, err := os.ReadFile(s.ImagePath(id))
+	if err != nil {
+		t.Fatalf("original image must still exist: %v", err)
+	}
+	if !bytes.Equal(got, original) {
+		t.Error("original image content was modified by the failed Save")
+	}
+	gotThumb, err := os.ReadFile(s.ThumbPath(id))
+	if err != nil {
+		t.Fatalf("original thumb must still exist: %v", err)
+	}
+	if !bytes.Equal(gotThumb, origThumb) {
+		t.Error("original thumbnail was modified by the failed Save")
+	}
+	if left := tempFiles(t, s); len(left) != 0 {
+		t.Errorf("temp files left behind: %v", left)
+	}
+}
+
+// TestSave_ReplacesImageAndThumbnail verifies a successful Save over an
+// existing image swaps both files and leaves no temp files.
+func TestSave_ReplacesImageAndThumbnail(t *testing.T) {
+	s := newTestStorage(t)
+	id := "repl1234"
+	if err := s.SaveNew(id, makePNG(t, 40, 30)); err != nil {
+		t.Fatalf("SaveNew: %v", err)
+	}
+	oldThumb, _ := os.ReadFile(s.ThumbPath(id))
+
+	replacement := makePNG(t, 800, 20)
+	if err := s.Save(id, bytes.NewReader(replacement)); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := os.ReadFile(s.ImagePath(id))
+	if err != nil {
+		t.Fatalf("read image: %v", err)
+	}
+	if !bytes.Equal(got, replacement) {
+		t.Error("image content was not replaced")
+	}
+	newThumb, err := os.ReadFile(s.ThumbPath(id))
+	if err != nil {
+		t.Fatalf("read thumb: %v", err)
+	}
+	if bytes.Equal(newThumb, oldThumb) {
+		t.Error("thumbnail was not regenerated")
+	}
+	if left := tempFiles(t, s); len(left) != 0 {
+		t.Errorf("temp files left behind: %v", left)
+	}
+	if info, err := os.Stat(s.ImagePath(id)); err == nil && info.Mode().Perm() != 0o640 {
+		t.Errorf("image mode = %o, want 640", info.Mode().Perm())
+	}
+}
+
+// TestSaveNew_UndecodablePNG_LeavesNothingBehind verifies a failed first save
+// writes neither an image nor a thumbnail nor any temp file.
+func TestSaveNew_UndecodablePNG_LeavesNothingBehind(t *testing.T) {
+	s := newTestStorage(t)
+	id := "none1234"
+	if err := s.SaveNew(id, corruptPNG(10, 10)); err == nil {
+		t.Fatal("expected SaveNew to fail")
+	}
+	if _, err := os.Stat(s.ImagePath(id)); !os.IsNotExist(err) {
+		t.Errorf("image file should not exist, stat err = %v", err)
+	}
+	if _, err := os.Stat(s.ThumbPath(id)); !os.IsNotExist(err) {
+		t.Errorf("thumb file should not exist, stat err = %v", err)
+	}
+	if left := tempFiles(t, s); len(left) != 0 {
+		t.Errorf("temp files left behind: %v", left)
+	}
+}
+
+// TestSaveNew_ExistingFile_ReturnsIDCollision verifies the corrupt-state guard.
+func TestSaveNew_ExistingFile_ReturnsIDCollision(t *testing.T) {
+	s := newTestStorage(t)
+	id := "coll1234"
+	original := makePNG(t, 10, 10)
+	if err := s.SaveNew(id, original); err != nil {
+		t.Fatalf("SaveNew: %v", err)
+	}
+	err := s.SaveNew(id, makePNG(t, 20, 20))
+	if !errors.Is(err, ErrIDCollision) {
+		t.Fatalf("expected ErrIDCollision, got %v", err)
+	}
+	got, _ := os.ReadFile(s.ImagePath(id))
+	if !bytes.Equal(got, original) {
+		t.Error("existing image was overwritten despite collision")
+	}
+}
+
+// TestNew_RemovesStaleTempFiles verifies leftover temp files from a crashed
+// write are cleaned up at startup, while real images are kept.
+func TestNew_RemovesStaleTempFiles(t *testing.T) {
+	base := t.TempDir()
+	thumbs := filepath.Join(base, "thumbs")
+	if err := os.MkdirAll(thumbs, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	stale := []string{
+		filepath.Join(base, ".abc12345.123.tmp"),
+		filepath.Join(thumbs, ".abc12345.456.tmp"),
+	}
+	keep := filepath.Join(base, "abc12345.png")
+	for _, p := range append(stale, keep) {
+		if err := os.WriteFile(p, []byte("x"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := New(base); err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for _, p := range stale {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("stale temp %s should be removed, stat err = %v", p, err)
+		}
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Errorf("real image should be kept: %v", err)
+	}
+}

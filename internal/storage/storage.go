@@ -61,6 +61,9 @@ func New(base string) (*Storage, error) {
 			return nil, fmt.Errorf("create storage dir %q: %w", dir, err)
 		}
 	}
+	if err := removeStaleTemps(base); err != nil {
+		return nil, fmt.Errorf("clean stale temp files: %w", err)
+	}
 	return &Storage{base: base}, nil
 }
 
@@ -73,54 +76,128 @@ func ValidatePNG(data []byte) error {
 	return checkPNGDimensions(data)
 }
 
-// SaveNew writes a new image for id using O_EXCL (fails if the file already
-// exists) and generates a thumbnail. data must be pre-validated with
-// ValidatePNG. Returns ErrIDCollision if the file already exists on disk.
+// SaveNew stores a new image for id and generates its thumbnail. data must be
+// pre-validated with ValidatePNG. Returns ErrIDCollision if an image file for
+// id already exists on disk, which indicates a corrupt state (file without a
+// DB record) since IDs are unique in the database.
 func (s *Storage) SaveNew(id string, data []byte) error {
-	imgPath := s.imagePath(id)
-	f, err := os.OpenFile(imgPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
-	if err != nil {
-		if os.IsExist(err) {
-			return ErrIDCollision
-		}
-		return fmt.Errorf("write image: %w", err)
+	if _, err := os.Lstat(s.imagePath(id)); err == nil {
+		return ErrIDCollision
 	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		os.Remove(imgPath)
-		return fmt.Errorf("write image: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(imgPath)
-		return fmt.Errorf("write image: %w", err)
-	}
-	if err := s.generateThumb(id, data); err != nil {
-		os.Remove(imgPath)
-		return fmt.Errorf("generate thumbnail: %w", err)
-	}
-	return nil
+	return s.write(id, data)
 }
 
-// Save reads all of r, validates the PNG, overwrites any existing file, and
-// regenerates the thumbnail. Used by the annotation path to replace images.
+// Save reads all of r, validates the PNG, replaces any existing image for id,
+// and regenerates the thumbnail. Used by the annotation path to replace images.
 func (s *Storage) Save(id string, r io.Reader) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return fmt.Errorf("read upload: %w", err)
 	}
-	if !isPNG(data) {
-		return ErrNotPNG
-	}
-	if err := checkPNGDimensions(data); err != nil {
+	if err := ValidatePNG(data); err != nil {
 		return err
 	}
-	imgPath := s.imagePath(id)
-	if err := os.WriteFile(imgPath, data, 0o640); err != nil {
+	return s.write(id, data)
+}
+
+// write atomically installs data as the image for id together with a freshly
+// generated thumbnail. Both files are first produced as temporary files next
+// to their destination and only renamed into place once everything succeeded,
+// so a failure at any point (bad PNG body, disk full, crash) leaves any
+// existing image and thumbnail untouched and never a partially written file.
+// The thumbnail is generated first because decoding is the most likely step
+// to fail.
+func (s *Storage) write(id string, data []byte) (err error) {
+	thumbTmp, err := s.writeThumbTemp(id, data)
+	if err != nil {
+		return fmt.Errorf("generate thumbnail: %w", err)
+	}
+	defer os.Remove(thumbTmp) // no-op once renamed into place
+
+	imgTmp, err := writeTemp(s.base, id, func(f *os.File) error {
+		_, err := f.Write(data)
+		return err
+	})
+	if err != nil {
 		return fmt.Errorf("write image: %w", err)
 	}
-	if err := s.generateThumb(id, data); err != nil {
-		os.Remove(imgPath)
-		return fmt.Errorf("generate thumbnail: %w", err)
+	defer os.Remove(imgTmp) // no-op once renamed into place
+
+	if err := os.Rename(imgTmp, s.imagePath(id)); err != nil {
+		return fmt.Errorf("write image: %w", err)
+	}
+	if err := os.Rename(thumbTmp, s.thumbPath(id)); err != nil {
+		return fmt.Errorf("write thumbnail: %w", err)
+	}
+	return nil
+}
+
+// writeThumbTemp decodes data, scales it down, and encodes the thumbnail into
+// a temporary file in the thumbs directory, returning its path.
+func (s *Storage) writeThumbTemp(id string, data []byte) (string, error) {
+	// Serialise the memory-heavy decode + scale behind decodeSem so concurrent
+	// large uploads cannot collectively exhaust memory.
+	decodeSem <- struct{}{}
+	src, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		<-decodeSem
+		return "", fmt.Errorf("decode png: %w", err)
+	}
+	thumb := scaleDown(src, thumbMaxDim)
+	<-decodeSem
+	return writeTemp(filepath.Join(s.base, "thumbs"), id, func(f *os.File) error {
+		return png.Encode(f, thumb)
+	})
+}
+
+// tempPattern is the os.CreateTemp pattern for in-progress files. The leading
+// dot and .tmp suffix keep them distinct from served "<id>.png" files.
+const tempPattern = ".*.tmp"
+
+// writeTemp creates a temporary file in dir, lets fill write its contents,
+// and syncs and closes it. On any failure the temporary file is removed and
+// the error returned; on success its path is returned for the caller to
+// rename into place (and to remove if a later step fails).
+func writeTemp(dir, id string, fill func(*os.File) error) (path string, err error) {
+	f, err := os.CreateTemp(dir, "."+id+tempPattern)
+	if err != nil {
+		return "", err
+	}
+	path = f.Name()
+	defer func() {
+		if err != nil {
+			f.Close()
+			os.Remove(path)
+		}
+	}()
+	if err = f.Chmod(0o640); err != nil {
+		return "", err
+	}
+	if err = fill(f); err != nil {
+		return "", err
+	}
+	if err = f.Sync(); err != nil {
+		return "", err
+	}
+	if err = f.Close(); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// removeStaleTemps deletes leftover temporary files (from a crash mid-write)
+// in the image and thumbnail directories.
+func removeStaleTemps(base string) error {
+	for _, dir := range []string{base, filepath.Join(base, "thumbs")} {
+		matches, err := filepath.Glob(filepath.Join(dir, tempPattern))
+		if err != nil {
+			return err
+		}
+		for _, m := range matches {
+			if err := os.Remove(m); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -170,29 +247,6 @@ func checkPNGDimensions(data []byte) error {
 	return nil
 }
 
-func (s *Storage) generateThumb(id string, data []byte) error {
-	// Serialise the memory-heavy decode + scale behind decodeSem so concurrent
-	// large uploads cannot collectively exhaust memory.
-	decodeSem <- struct{}{}
-	src, err := png.Decode(bytes.NewReader(data))
-	if err != nil {
-		<-decodeSem
-		return fmt.Errorf("decode png: %w", err)
-	}
-	thumb := scaleDown(src, thumbMaxDim)
-	<-decodeSem
-	f, err := os.OpenFile(s.thumbPath(id), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o640)
-	if err != nil {
-		return fmt.Errorf("create thumb file: %w", err)
-	}
-	if encErr := png.Encode(f, thumb); encErr != nil {
-		f.Close()
-		os.Remove(s.thumbPath(id))
-		return fmt.Errorf("encode thumb: %w", encErr)
-	}
-	return f.Close()
-}
-
 // scaleDown returns src scaled so its longest dimension is at most maxDim,
 // preserving aspect ratio. Returns src unchanged if it already fits.
 func scaleDown(src image.Image, maxDim int) image.Image {
@@ -226,6 +280,6 @@ var ErrNotPNG = fmt.Errorf("uploaded file is not a valid PNG")
 // ErrImageTooLarge is returned when the PNG dimensions exceed the safe limit.
 var ErrImageTooLarge = fmt.Errorf("image dimensions exceed the allowed maximum (%dx%d px or %d Mpx total)", maxImageDim, maxImageDim, maxImagePixels/1_000_000)
 
-// ErrIDCollision is returned by SaveNew when a file for the given ID already
-// exists on disk, indicating a corrupt state (file without a DB record).
+// ErrIDCollision is returned by SaveNew when an image file for the given ID
+// already exists on disk, indicating a corrupt state (file without a DB record).
 var ErrIDCollision = fmt.Errorf("image file already exists for this ID")
