@@ -43,8 +43,7 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	//   8. Auth providers: Tailscale → ProxyAuth → OIDC session → Anonymous.
 	//      Each no-ops when disabled or when a prior provider identified the
 	//      user.
-	//   9. LogEnricher reads the identity and fills request-scoped logger +
-	//      log attrs.
+	//   9. LogEnricher reads the identity and fills the request log attrs.
 	r.Use(mw.PreserveRemoteAddr)
 	r.Use(mw.TrustedRealIP(cfg))
 	r.Use(chimw.RequestID)
@@ -62,7 +61,7 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	r.Use(auth.OIDCMiddleware(cfg, logger))
 	r.Use(auth.AnonymousMiddleware(cfg, logger))
 
-	r.Use(mw.LogEnricher(logger))
+	r.Use(mw.LogEnricher())
 
 	rl := ratelimit.NewMemory(ratelimit.Config{
 		RequestsPerSecond: cfg.RateLimit.RequestsPerSecond,
