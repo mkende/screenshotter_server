@@ -1,0 +1,22 @@
+# prek hooks for the server component; see the workspace root config. Hooks run
+# from this directory, so they delegate to the recipes in .justfile and stay in
+# step with what CI runs.
+repos:
+  - repo: local
+    hooks:
+      - id: server-check-format
+        name: server · check-format
+        entry: just check-format
+        language: system
+        pass_filenames: false
+      - id: server-lint
+        name: server · lint
+        entry: just lint
+        language: system
+        pass_filenames: false
+      - id: server-test
+        name: server · test
+        entry: just test
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
