@@ -61,5 +61,22 @@ jobs:
       - name: Build
         run: go build ./...
 
+      # `just` is not on the runner image. Fetch the pinned release and verify
+      # its checksum, rather than depending on another third-party action.
+      - name: Install just
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -fsSL -o just.tar.gz \
+            https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz
+          echo "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d  just.tar.gz" | sha256sum -c -
+          tar -xzf just.tar.gz just
+          sudo install just /usr/local/bin/just
+
+      - name: Lint
+        run: just lint
+
+      - name: Check formatting
+        run: just check-format
+
       - name: Test
         run: go test -race -count=1 ./...
