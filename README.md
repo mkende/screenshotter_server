@@ -44,7 +44,7 @@ volumes:
 
 Requirements:
 
-- Go 1.23+ with CGo enabled (required by `mattn/go-sqlite3` for SQLite)
+- Go 1.25+ with CGo enabled (required by `mattn/go-sqlite3` for SQLite)
 - A C compiler (`gcc` / `clang`) on the build host
 
 ```sh
