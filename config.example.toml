@@ -128,6 +128,11 @@ dsn = "/var/lib/screenshotter/db.sqlite"
 # driver = "postgres"
 # dsn    = "postgres://user:password@localhost/screenshotter?sslmode=require"
 
+# Alternatively, read the DSN from an environment variable. Useful for
+# PostgreSQL, whose DSN embeds a password that should not live in this file.
+# Mutually exclusive with dsn; exactly one of the two must be set.
+# dsn_env_var = "SCREENSHOTTER_DB_DSN"
+
 # ---------------------------------------------------------------------------
 # Rate limiting (applied to the unauthenticated image routes)
 # ---------------------------------------------------------------------------

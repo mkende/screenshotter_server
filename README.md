@@ -72,6 +72,9 @@ $EDITOR config.toml
 - **`server.storage_path`** — Directory where PNGs and thumbnails are stored.
 - **`db.driver`** — `sqlite` or `postgres`.
 - **`db.dsn`** — Path to the `.sqlite` file, or a PostgreSQL connection string.
+  Can also be provided via `db.dsn_env_var`, which names an environment
+  variable holding the DSN — useful for PostgreSQL, whose DSN embeds a
+  password. The two forms are mutually exclusive; exactly one must be set.
 - **At least one authentication backend** — see [Authentication backends](#authentication-backends).
 - **`jwt_secret`** — Required when OIDC is enabled. Random string ≥ 32 chars;
   generate with `openssl rand -hex 32`. Can also be provided via

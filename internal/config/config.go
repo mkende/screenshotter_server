@@ -91,8 +91,14 @@ type OIDCConfig struct {
 type DBConfig struct {
 	// Driver selects the database backend. Valid values: "sqlite", "postgres".
 	Driver string `toml:"driver"`
-	// DSN is the data source name / connection string.
+	// DSN is the data source name / connection string. Mutually exclusive
+	// with DSNEnvVar; exactly one of the two must be set.
 	DSN string `toml:"dsn"`
+	// DSNEnvVar is the name of an environment variable whose value is used as
+	// the data source name. Useful for PostgreSQL, whose DSN embeds a
+	// password that should not live in the config file. Mutually exclusive
+	// with DSN.
+	DSNEnvVar string `toml:"dsn_env_var"`
 }
 
 // ServerConfig holds server-level filesystem/network settings specific to
@@ -378,6 +384,10 @@ func resolveSecrets(c *Config) error {
 		return err
 	}
 	c.OIDC.ClientSecret, err = resolveSecret("oidc.client_secret", c.OIDC.ClientSecret, "oidc.client_secret_env_var", c.OIDC.ClientSecretEnvVar)
+	if err != nil {
+		return err
+	}
+	c.DB.DSN, err = resolveSecret("db.dsn", c.DB.DSN, "db.dsn_env_var", c.DB.DSNEnvVar)
 	return err
 }
 
@@ -457,7 +467,7 @@ func validate(c *Config) error {
 		return fmt.Errorf("db.driver must be \"sqlite\" or \"postgres\", got %q", c.DB.Driver)
 	}
 	if c.DB.DSN == "" {
-		return errors.New("db.dsn is required")
+		return errors.New("db.dsn (or db.dsn_env_var) is required")
 	}
 
 	// id / home

@@ -310,3 +310,36 @@ jwt_secret_env_var = "SS_TEST_JWT"
 		t.Error("expected error when both jwt_secret and jwt_secret_env_var are set")
 	}
 }
+
+func TestLoad_DBDSNFromEnv(t *testing.T) {
+	t.Setenv("SS_TEST_DSN", "postgres://user:password@localhost/screenshotter?sslmode=require")
+	toml := strings.ReplaceAll(validBase(), `dsn    = ":memory:"`, `dsn_env_var = "SS_TEST_DSN"`)
+	path := writeConfig(t, toml)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.DB.DSN != "postgres://user:password@localhost/screenshotter?sslmode=require" {
+		t.Errorf("expected db.dsn to be resolved from env, got %q", cfg.DB.DSN)
+	}
+}
+
+func TestLoad_DBDSNBothFormsError(t *testing.T) {
+	toml := strings.ReplaceAll(validBase(), `dsn    = ":memory:"`,
+		`dsn         = ":memory:"
+dsn_env_var = "SS_TEST_DSN"`)
+	path := writeConfig(t, toml)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "db.dsn_env_var") {
+		t.Errorf("expected error when both db.dsn and db.dsn_env_var are set, got: %v", err)
+	}
+}
+
+func TestLoad_DBDSNEnvVarUnset(t *testing.T) {
+	toml := strings.ReplaceAll(validBase(), `dsn    = ":memory:"`, `dsn_env_var = "SS_TEST_DSN_MISSING"`)
+	path := writeConfig(t, toml)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "SS_TEST_DSN_MISSING") {
+		t.Errorf("expected error when db.dsn_env_var names an unset variable, got: %v", err)
+	}
+}
