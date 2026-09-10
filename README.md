@@ -68,7 +68,10 @@ $EDITOR config.toml
 - **`canonical_address`** — Public base URL including scheme, no trailing slash
   (e.g. `https://screenshots.example.com`). Required when OIDC is enabled.
   When set, any request arriving on a different scheme or host is redirected
-  here with a 301, preserving path and query.
+  here with a 301, preserving path and query. A request carrying
+  `no_redirect=1` in its query string is served on the address it arrived on
+  instead — for clients that reach the server on a private address the
+  canonical URL does not resolve to and that do not follow redirects.
 - **`server.storage_path`** — Directory where PNGs and thumbnails are stored.
 - **`db.driver`** — `sqlite` or `postgres`.
 - **`db.dsn`** — Path to the `.sqlite` file, or a PostgreSQL connection string.
