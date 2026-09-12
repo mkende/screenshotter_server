@@ -1,8 +1,9 @@
 name: Tag release
 
 # Creates a vX.Y.Z git tag from the VERSION file on main whenever the Test
-# workflow completes successfully, if that tag does not already exist.
-# That tag then triggers the Docker workflow to build and publish the image.
+# workflow completes successfully, if that tag does not already exist. The
+# module sits at the root of this repository, so the tag carries no prefix;
+# that is what makes `go install ...@vX.Y.Z` resolve here.
 
 on:
   workflow_run:

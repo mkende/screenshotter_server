@@ -27,8 +27,8 @@ on:
 # runnable externally once approved.
 
 jobs:
-  server:
-    name: Go server tests
+  test:
+    name: Tests
     runs-on: ubuntu-latest
     if: |
       github.event_name != 'pull_request' ||
