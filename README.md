@@ -11,6 +11,10 @@ captures and crops screenshots in the browser, then uploads them here.
 A pre-built Docker image is published at
 [ghcr.io/mkende/screenshotter](https://github.com/users/mkende/packages/container/package/screenshotter).
 
+Full documentation — deployment, every configuration option, and the Chrome
+extension — is at
+[www.screenshotter.org/server.html](https://www.screenshotter.org/server.html).
+
 ## Docker
 
 The fastest way to get started is with the pre-built image. Copy the example
@@ -39,6 +43,15 @@ services:
 volumes:
   screenshotter-data:
 ```
+
+## Install with Go
+
+```sh
+go install github.com/mkende/screenshotter_server/cmd/screenshotter@latest
+```
+
+Needs a C compiler: the SQLite driver is CGo. Versions before `v1.1.0` declared
+the wrong module path and cannot be installed this way.
 
 ## Build from source
 

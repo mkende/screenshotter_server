@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/mkende/screenshotter/server/internal/config"
-	"github.com/mkende/screenshotter/server/internal/httputil"
+	"github.com/mkende/screenshotter_server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/httputil"
 )
 
 // isAPIRequest reports whether the request is one that expects a JSON

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/mkende/screenshotter/server/internal/auth"
+	"github.com/mkende/screenshotter_server/internal/auth"
 )
 
 // RequestAttrs is a mutable bag of per-request attributes populated by inner

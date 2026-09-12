@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/config"
 )
 
 // TailscaleMiddleware reads Tailscale-User-* headers and populates the

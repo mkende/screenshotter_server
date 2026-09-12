@@ -8,10 +8,10 @@ import (
 	"math/big"
 	"net/http"
 
-	"github.com/mkende/screenshotter/server/internal/auth"
-	"github.com/mkende/screenshotter/server/internal/db"
-	"github.com/mkende/screenshotter/server/internal/httputil"
-	"github.com/mkende/screenshotter/server/internal/storage"
+	"github.com/mkende/screenshotter_server/internal/auth"
+	"github.com/mkende/screenshotter_server/internal/db"
+	"github.com/mkende/screenshotter_server/internal/httputil"
+	"github.com/mkende/screenshotter_server/internal/storage"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/config"
 )
 
 // sessionCookieName is the JWT session cookie name.

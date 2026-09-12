@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/mkende/screenshotter/server/internal/auth"
+	"github.com/mkende/screenshotter_server/internal/auth"
 )
 
 // LogEnricher returns a middleware that must run after all authentication

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/config"
 	"golang.org/x/oauth2"
 )
 

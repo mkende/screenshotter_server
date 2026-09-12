@@ -11,7 +11,7 @@ package auth
 import (
 	"context"
 
-	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/config"
 )
 
 // AuthSource identifies how the user was authenticated.

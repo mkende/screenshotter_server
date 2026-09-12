@@ -1,4 +1,4 @@
-module github.com/mkende/screenshotter/server
+module github.com/mkende/screenshotter_server
 
 go 1.25.0
 

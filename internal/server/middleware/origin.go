@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/mkende/screenshotter/server/internal/config"
-	"github.com/mkende/screenshotter/server/internal/httputil"
+	"github.com/mkende/screenshotter_server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/httputil"
 )
 
 // RequireSameOriginOrExtension returns middleware that rejects requests whose

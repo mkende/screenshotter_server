@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/config"
 )
 
 func TestTrustedProxyNets(t *testing.T) {

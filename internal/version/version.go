@@ -7,7 +7,7 @@
 //
 // To embed a version in a local build:
 //
-//	go build -ldflags="-X github.com/mkende/screenshotter/server/internal/version.Version=v1.2.3" ./cmd/screenshotter
+//	go build -ldflags="-X github.com/mkende/screenshotter_server/internal/version.Version=v1.2.3" ./cmd/screenshotter
 package version
 
 import "runtime/debug"

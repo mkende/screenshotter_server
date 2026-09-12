@@ -11,12 +11,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
-	"github.com/mkende/screenshotter/server/internal/auth"
-	"github.com/mkende/screenshotter/server/internal/config"
-	"github.com/mkende/screenshotter/server/internal/handlers"
-	"github.com/mkende/screenshotter/server/internal/ratelimit"
-	mw "github.com/mkende/screenshotter/server/internal/server/middleware"
-	"github.com/mkende/screenshotter/server/internal/static"
+	"github.com/mkende/screenshotter_server/internal/auth"
+	"github.com/mkende/screenshotter_server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/handlers"
+	"github.com/mkende/screenshotter_server/internal/ratelimit"
+	mw "github.com/mkende/screenshotter_server/internal/server/middleware"
+	"github.com/mkende/screenshotter_server/internal/static"
 )
 
 // New builds and returns the main HTTP handler.

@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/mkende/screenshotter/server/internal/auth"
-	"github.com/mkende/screenshotter/server/internal/db"
+	"github.com/mkende/screenshotter_server/internal/auth"
+	"github.com/mkende/screenshotter_server/internal/db"
 )
 
 type viewData struct {

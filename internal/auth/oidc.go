@@ -14,7 +14,7 @@ import (
 	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
-	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/config"
 	"golang.org/x/oauth2"
 )
 

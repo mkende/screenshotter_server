@@ -11,12 +11,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/mkende/screenshotter/server/internal/auth"
-	"github.com/mkende/screenshotter/server/internal/config"
-	"github.com/mkende/screenshotter/server/internal/db"
-	mw "github.com/mkende/screenshotter/server/internal/server/middleware"
-	"github.com/mkende/screenshotter/server/internal/storage"
-	"github.com/mkende/screenshotter/server/internal/version"
+	"github.com/mkende/screenshotter_server/internal/auth"
+	"github.com/mkende/screenshotter_server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/db"
+	mw "github.com/mkende/screenshotter_server/internal/server/middleware"
+	"github.com/mkende/screenshotter_server/internal/storage"
+	"github.com/mkende/screenshotter_server/internal/version"
 )
 
 // errSourceURLScheme is returned by parseSourceURL when a non-empty source URL

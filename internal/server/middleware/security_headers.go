@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"net/http"
 
-	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/config"
 )
 
 type nonceKey struct{}

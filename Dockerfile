@@ -16,7 +16,7 @@ RUN go mod download
 COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=1 go build \
-    -ldflags="-s -w -X github.com/mkende/screenshotter/server/internal/version.Version=${VERSION}" \
+    -ldflags="-s -w -X github.com/mkende/screenshotter_server/internal/version.Version=${VERSION}" \
     -o screenshotter ./cmd/screenshotter
 
 ## Runtime stage

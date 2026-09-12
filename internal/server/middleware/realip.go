@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/mkende/screenshotter/server/internal/auth"
-	"github.com/mkende/screenshotter/server/internal/config"
+	"github.com/mkende/screenshotter_server/internal/auth"
+	"github.com/mkende/screenshotter_server/internal/config"
 )
 
 // PreserveRemoteAddr saves r.RemoteAddr into the request context before any

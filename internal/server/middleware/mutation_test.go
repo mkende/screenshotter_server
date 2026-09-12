@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	mw "github.com/mkende/screenshotter/server/internal/server/middleware"
+	mw "github.com/mkende/screenshotter_server/internal/server/middleware"
 )
 
 func TestRequireMutationHeader(t *testing.T) {
