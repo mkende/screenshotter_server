@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -70,7 +69,7 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	rlMiddleware := ratelimit.Middleware(rl)
 
 	// Favicon — served directly from disk; no auth required.
-	if faviconFile := resolveFaviconPath(cfg); faviconFile != "" {
+	if faviconFile := cfg.FaviconFile(); faviconFile != "" {
 		r.Get("/favicon.ico", faviconHandler(faviconFile))
 	}
 
@@ -157,19 +156,6 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	})
 
 	return r
-}
-
-// resolveFaviconPath returns the absolute favicon path, preferring
-// cfg.FaviconPath over cfg.Server.AssetsPath/favicon.ico. Returns "" if
-// neither is configured.
-func resolveFaviconPath(cfg *config.Config) string {
-	if cfg.FaviconPath != "" {
-		return cfg.FaviconPath
-	}
-	if cfg.Server.AssetsPath != "" {
-		return filepath.Join(cfg.Server.AssetsPath, "favicon.ico")
-	}
-	return ""
 }
 
 // faviconHandler serves favicon.ico from path.

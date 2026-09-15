@@ -343,3 +343,25 @@ func TestLoad_DBDSNEnvVarUnset(t *testing.T) {
 		t.Errorf("expected error when db.dsn_env_var names an unset variable, got: %v", err)
 	}
 }
+
+func TestFaviconFile(t *testing.T) {
+	cases := []struct {
+		name    string
+		favicon string
+		assets  string
+		want    string
+	}{
+		{"none", "", "", ""},
+		{"assets dir", "", "/srv/assets", filepath.Join("/srv/assets", "favicon.ico")},
+		{"explicit path wins", "/etc/icon.ico", "/srv/assets", "/etc/icon.ico"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{FaviconPath: tc.favicon}
+			cfg.Server.AssetsPath = tc.assets
+			if got := cfg.FaviconFile(); got != tc.want {
+				t.Errorf("FaviconFile() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

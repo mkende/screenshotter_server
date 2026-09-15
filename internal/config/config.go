@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -186,8 +187,9 @@ type Config struct {
 	// Defaults to "Screenshotter".
 	Title string `toml:"title"`
 
-	// FaviconPath is a filesystem path to a custom favicon file. When empty,
-	// the server falls back to <server.assets_path>/favicon.ico.
+	// FaviconPath is a filesystem path to a custom favicon file, also shown
+	// as the site icon in the navbar of the image page. When empty, the server
+	// falls back to <server.assets_path>/favicon.ico.
 	FaviconPath string `toml:"favicon_path"`
 
 	// JWTSecret is the HMAC secret used to sign and verify session JWT cookies.
@@ -509,4 +511,17 @@ func validate(c *Config) error {
 	}
 
 	return nil
+}
+
+// FaviconFile returns the path of the file to serve at /favicon.ico:
+// FaviconPath when set, else <Server.AssetsPath>/favicon.ico when the assets
+// directory is configured, else "" (no favicon is served).
+func (c *Config) FaviconFile() string {
+	if c.FaviconPath != "" {
+		return c.FaviconPath
+	}
+	if c.Server.AssetsPath != "" {
+		return filepath.Join(c.Server.AssetsPath, "favicon.ico")
+	}
+	return ""
 }

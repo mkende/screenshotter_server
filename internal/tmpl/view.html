@@ -4,6 +4,9 @@
 
 {{define "container-class"}}is-fluid{{end}}
 
+{{/* The navbar brand is the icon alone, to leave room for the title and URL. */}}
+{{define "brand"}}<img src="{{.IconURL}}" alt="{{.Title}}">{{end}}
+
 {{define "head"}}
 <meta property="og:type" content="website">
 <meta property="og:url" content="{{.CurrentURL}}">
@@ -26,6 +29,13 @@
 
   /* Navbar meta area takes remaining width between brand and action buttons,
      allowing the title and URL to truncate gracefully. */
+  #meta {
+    display: flex;
+    flex: 1;
+    /* Share of the navbar kept for the title and URL: when the action
+       buttons no longer fit next to it, they start moving into the menu. */
+    min-width: 40%;
+  }
   #meta-view, #meta-edit {
     display: flex;
     align-items: center;
@@ -35,6 +45,9 @@
     overflow: hidden;
     padding: 0 0.75rem;
   }
+  /* In the burger layout the script moves #meta into the brand row; the
+     edit form then wraps onto several lines rather than being clipped. */
+  .navbar:not(.is-desktop) #meta-edit { flex-wrap: wrap; padding: 0.5rem 0.75rem; }
   #meta-view .meta-title {
     font-weight: 600;
     white-space: nowrap;
@@ -67,6 +80,46 @@
   }
   .btn-copy-icon:hover { color: #3273dc; background: #f0f4ff; }
 
+  /* The action buttons and, after them, the "Other actions" dropdown (Bulma
+     gives .buttons a bottom margin when something follows it). */
+  #actions { gap: 0.75rem; }
+  #action-buttons { margin-bottom: 0; }
+  #actions-menu-items .dropdown-item .icon { margin-right: 0.25em; }
+
+  /* Bulma switches the navbar to the burger layout below 1024px. The script
+     adds is-desktop to keep the desktop layout below that, and removes it
+     only when the bar overflows even with every action in the menu. These
+     rules replay Bulma's desktop navbar styles for that case. */
+  @media screen and (max-width: 1023px) {
+    .navbar.is-desktop, .navbar.is-desktop .navbar-menu, .navbar.is-desktop .navbar-end {
+      align-items: stretch;
+      display: flex;
+    }
+    .navbar.is-desktop .navbar-burger { display: none; }
+    .navbar.is-desktop .navbar-menu { background: none; box-shadow: none; padding: 0; flex-grow: 1; }
+    .navbar.is-desktop .navbar-end { justify-content: flex-end; margin-inline-start: auto; }
+    .navbar.is-desktop .navbar-item, .navbar.is-desktop .navbar-link { align-items: center; display: flex; }
+    .navbar.is-desktop .navbar-item.has-dropdown { align-items: stretch; }
+    .navbar.is-desktop .navbar-link:not(.is-arrowless)::after { display: block; }
+    .navbar.is-desktop .navbar-dropdown {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: auto;
+      right: 0;
+      min-width: 100%;
+      z-index: var(--bulma-navbar-dropdown-z);
+      background-color: var(--bulma-navbar-dropdown-background-color);
+      border-top: var(--bulma-navbar-dropdown-border-width) var(--bulma-navbar-dropdown-border-style) var(--bulma-navbar-dropdown-border-color);
+      border-end-end-radius: var(--bulma-navbar-dropdown-radius);
+      border-end-start-radius: var(--bulma-navbar-dropdown-radius);
+      box-shadow: 0 0.5em 0.5em hsla(var(--bulma-scheme-h), var(--bulma-scheme-s), var(--bulma-scheme-invert-l), 0.1);
+    }
+    .navbar.is-desktop .navbar-item.is-active .navbar-dropdown { display: block; }
+    .navbar.is-desktop .navbar-dropdown .navbar-item { padding: 0.375rem 1rem; white-space: nowrap; }
+    .navbar.is-desktop .navbar-dropdown a.navbar-item { padding-inline-end: 3rem; }
+  }
+
   /* Edit form inputs in the navbar share available space. */
   #meta-edit input[type="text"] { flex: 1; min-width: 5rem; max-width: 14rem; }
   #meta-edit input[type="url"]  { flex: 2; min-width: 8rem; }
@@ -98,8 +151,9 @@
 {{end}}
 
 {{define "navbar-start"}}
+<div id="meta">
 {{/* Display mode: title · URL [copy] [pencil] */}}
-<div id="meta-view"{{if .IsOwner}} class=""{{end}}>
+<div id="meta-view">
   {{if .Image.Title}}
   <span class="meta-title" title="{{.Image.Title}}">{{.Image.Title}}</span>
   {{else}}
@@ -135,11 +189,13 @@
   <button id="btn-cancel-edit" type="button" class="button is-light is-small">Cancel</button>
 </form>
 {{end}}
+</div>
 {{end}}
 
 {{define "navbar-end"}}
-<div class="navbar-item">
-  <div class="buttons">
+{{/* Buttons that do not fit are moved, last first, into the dropdown below. */}}
+<div class="navbar-item" id="actions">
+  <div class="buttons" id="action-buttons">
     <button id="btn-copy-link" class="button is-light is-small"
             title="Copy link: {{.CurrentURL}}"
             data-copy-text="{{.CurrentURL}}">
@@ -163,20 +219,27 @@
       <span class="icon is-small"><i class="fa fa-trash"></i></span>
       <span>Delete</span>
     </button>
-    {{end}}
-  </div>
-</div>
-{{if and .User .User.IsAdmin (not .IsOwner)}}
-<div class="navbar-item">
-  <div class="buttons are-small">
-    <button id="btn-admin-delete" class="button is-danger" data-image-id="{{.Image.ID}}"
+    {{else if and .User .User.IsAdmin}}
+    <button id="btn-admin-delete" class="button is-danger is-small" data-image-id="{{.Image.ID}}"
             title="Admin action: delete this image regardless of ownership">
       <span class="icon is-small"><i class="fa fa-shield-halved"></i></span>
       <span>Admin: delete</span>
     </button>
+    {{end}}
+  </div>
+  <div class="dropdown is-right" id="actions-menu" style="display:none">
+    <div class="dropdown-trigger">
+      <button class="button is-light is-small" aria-haspopup="true" aria-controls="actions-menu-items">
+        <span class="icon is-small"><i class="fa fa-ellipsis"></i></span>
+        <span id="actions-menu-label">Other actions</span>
+        <span class="icon is-small"><i class="fa fa-angle-down"></i></span>
+      </button>
+    </div>
+    <div class="dropdown-menu" role="menu">
+      <div class="dropdown-content" id="actions-menu-items"></div>
+    </div>
   </div>
 </div>
-{{end}}
 {{end}}
 
 {{define "content"}}
@@ -281,6 +344,61 @@ function saveEdit(e) {
         .catch(function() { alert('Network error while deleting.'); });
     });
   }
+
+  // Priority+ navigation: action buttons that do not fit in the navbar move,
+  // last first, into the "Other actions" dropdown. Elements are moved rather
+  // than cloned so their listeners follow them; only their class changes.
+  // The bar is laid out in Bulma's desktop layout (forced below its
+  // breakpoint by the is-desktop class) and only falls back to the burger
+  // menu when it overflows even fully collapsed. The burger menu lists the
+  // buttons; the title and URL stay visible, moved next to the icon.
+  var nav = document.querySelector('.navbar');
+  var navbarMenu = document.getElementById('navbarMenu');
+  var burger = document.querySelector('.navbar-burger');
+  var meta = document.getElementById('meta');
+  var buttons = document.getElementById('action-buttons');
+  var menu = document.getElementById('actions-menu');
+  var menuItems = document.getElementById('actions-menu-items');
+  var menuLabel = document.getElementById('actions-menu-label');
+  function overflows() { return navbarMenu.scrollWidth > navbarMenu.clientWidth; }
+  function showAllButtons() {
+    while (menuItems.firstElementChild) {
+      var item = menuItems.firstElementChild;
+      item.className = item.dataset.buttonClass;
+      buttons.appendChild(item);
+    }
+    buttons.style.display = '';
+    menu.style.display = 'none';
+  }
+  function layoutActions() {
+    var wasDesktop = nav.classList.contains('is-desktop');
+    nav.classList.add('is-desktop');
+    navbarMenu.prepend(meta);
+    showAllButtons();
+    while (buttons.lastElementChild && overflows()) {
+      var button = buttons.lastElementChild;
+      button.dataset.buttonClass = button.className;
+      button.className = 'dropdown-item';
+      menuItems.prepend(button);
+      menu.style.display = '';
+    }
+    if (!buttons.children.length) {
+      buttons.style.display = 'none';
+      if (overflows()) {
+        nav.classList.remove('is-desktop');
+        burger.before(meta);
+        showAllButtons();
+        // Start the burger layout closed; a burger toggle re-triggers this
+        // function (the bar's height changes) and must not be undone here.
+        if (wasDesktop) {
+          burger.classList.remove('is-active');
+          navbarMenu.classList.remove('is-active');
+        }
+      }
+    }
+    menuLabel.textContent = buttons.children.length ? 'Other actions' : 'Actions';
+  }
+  new ResizeObserver(layoutActions).observe(nav);
 }());
 </script>
 {{end}}

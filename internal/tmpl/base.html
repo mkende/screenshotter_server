@@ -6,12 +6,22 @@
   <title>{{block "title" .}}{{.Title}}{{end}}</title>
   <link rel="stylesheet" href="/assets/bulma-1.0.2.min.css">
   <link rel="stylesheet" href="/assets/font-awesome-6.5.0.min.css">
+  <style>
+    /* In the burger layout Bulma lists a dropdown's items inline, so the
+       user menu's own title is redundant there (the first item repeats the
+       name). Pages may force the desktop layout with is-desktop. */
+    @media screen and (max-width: 1023px) {
+      .navbar:not(.is-desktop) #user-menu > .navbar-link { display: none; }
+    }
+  </style>
   {{block "head" .}}{{end}}
 </head>
 <body style="display:flex;flex-direction:column;min-height:100vh">
   <nav class="navbar is-white has-shadow" role="navigation" aria-label="main navigation">
     <div class="navbar-brand">
-      <a class="navbar-item has-text-weight-semibold is-size-5" href="/">{{.Title}}</a>
+      <a class="navbar-item has-text-weight-semibold is-size-5" href="/" title="{{.Title}}">
+        {{block "brand" .}}<img src="{{.IconURL}}" alt="{{.Title}}"><span class="ml-2">{{.Title}}</span>{{end}}
+      </a>
       <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMenu">
         <span aria-hidden="true"></span>
         <span aria-hidden="true"></span>
@@ -24,7 +34,7 @@
         {{block "navbar-end" .}}{{end}}
         {{if .User}}
         <div class="navbar-item has-dropdown" id="user-menu">
-          <a class="navbar-link" id="user-menu-trigger">{{.User.DisplayName}}</a>
+          <a class="navbar-link">{{.User.DisplayName}}</a>
           <div class="navbar-dropdown is-right">
             <div class="navbar-item">
               <div>
@@ -81,16 +91,21 @@
       if (menu) menu.classList.toggle('is-active');
     });
   }
-  var userMenu = document.getElementById('user-menu');
-  if (userMenu) {
-    document.getElementById('user-menu-trigger').addEventListener('click', function(e) {
-      e.stopPropagation();
-      userMenu.classList.toggle('is-active');
-    });
-    document.addEventListener('click', function() {
-      userMenu.classList.remove('is-active');
-    });
+  // Click-toggled dropdowns (navbar ones and Bulma .dropdown components);
+  // any click elsewhere closes them.
+  var dropdowns = document.querySelectorAll('.navbar-item.has-dropdown, .dropdown');
+  function closeDropdowns() {
+    dropdowns.forEach(function(d) { d.classList.remove('is-active'); });
   }
+  dropdowns.forEach(function(d) {
+    d.querySelector('.navbar-link, .dropdown-trigger').addEventListener('click', function(e) {
+      e.stopPropagation();
+      var open = d.classList.contains('is-active');
+      closeDropdowns();
+      if (!open) d.classList.add('is-active');
+    });
+  });
+  document.addEventListener('click', closeDropdowns);
 }());
 </script>
 </body>

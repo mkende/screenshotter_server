@@ -63,6 +63,10 @@ type pageData struct {
 	OIDCEnabled bool
 	Title       string
 	Version     string
+	// IconURL is the site icon shown in place of the title in the navbar of
+	// some pages: the configured favicon when there is one, else the embedded
+	// default icon.
+	IconURL string
 	// Nonce is the per-request CSP nonce. Every <script> tag in the templates
 	// must carry nonce="{{.Nonce}}" for the script-src policy to permit it.
 	Nonce string
@@ -70,11 +74,16 @@ type pageData struct {
 
 // newPageData returns a pageData populated with the common fields.
 func (h *Handlers) newPageData(r *http.Request) pageData {
+	iconURL := "/assets/icon-64.png"
+	if h.cfg.FaviconFile() != "" {
+		iconURL = "/favicon.ico"
+	}
 	return pageData{
 		User:        auth.FromContext(r.Context()),
 		OIDCEnabled: h.cfg.OIDC.Enabled,
 		Title:       h.cfg.Title,
 		Version:     version.Version,
+		IconURL:     iconURL,
 		Nonce:       mw.NonceFromContext(r.Context()),
 	}
 }
