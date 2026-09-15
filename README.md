@@ -3,7 +3,9 @@
 Go HTTP server that pairs with the
 [Screenshotter Chrome extension](https://chromewebstore.google.com/detail/nnipkgjcfgekggpkclhdghbbfnpokdlg) to receive
 browser screenshots, store them on disk, and serve a web UI for browsing and
-annotating them.
+annotating them. See also the
+[Slack bridge](https://github.com/mkende/screenshotter_slack_bridge), which
+previews Screenshotter links inline in Slack.
 
 The server is the backend component of Screenshotter. The Chrome extension
 captures and crops screenshots in the browser, then uploads them here.
