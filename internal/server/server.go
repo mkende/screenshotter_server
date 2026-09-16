@@ -151,7 +151,6 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 		r.Patch(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Update)
 		r.Delete(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}", cfg.ID.Length), h.Delete)
 		r.Get(fmt.Sprintf("/thumb/{id:[a-zA-Z0-9]{%d,}}.png", cfg.ID.Length), h.ServeThumb)
-		r.Get(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}/annotate", cfg.ID.Length), h.AnnotateView)
 		r.Post(fmt.Sprintf("/{id:[a-zA-Z0-9]{%d,}}/annotate", cfg.ID.Length), h.Annotate)
 	})
 

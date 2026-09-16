@@ -21,6 +21,7 @@ import (
 	"github.com/mkende/screenshotter_server/internal/config"
 	"github.com/mkende/screenshotter_server/internal/db"
 	"github.com/mkende/screenshotter_server/internal/storage"
+	"github.com/mkende/screenshotter_server/internal/tmpl"
 )
 
 // makePNG returns valid in-memory PNG bytes.
@@ -54,7 +55,7 @@ func openTestDB(t *testing.T) *db.DB {
 // handlers' renderTemplate calls without needing the embedded FS.
 func minimalTemplates() map[string]*template.Template {
 	const stub = `{{define "base"}}OK{{end}}`
-	pages := []string{"home.html", "home-loggedout.html", "view.html", "annotate.html", "admin-users.html", "admin-user-detail.html"}
+	pages := []string{"home.html", "home-loggedout.html", "view.html", "admin-users.html", "admin-user-detail.html"}
 	m := make(map[string]*template.Template, len(pages))
 	for _, p := range pages {
 		m[p] = template.Must(template.New("").Parse(stub))
@@ -459,6 +460,54 @@ func TestView_UnauthenticatedAllowed(t *testing.T) {
 	rr := executeAnonymous(h.View, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200 for anonymous viewer, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestView_RealTemplate_EditorOnlyForOwner renders the embedded view.html:
+// the owner gets the annotation editor, a visitor only the image.
+func TestView_RealTemplate_EditorOnlyForOwner(t *testing.T) {
+	h, database, stor := newHandlers(t)
+	tmpls, err := tmpl.Parse()
+	if err != nil {
+		t.Fatalf("tmpl.Parse: %v", err)
+	}
+	h.tmpls = tmpls
+	setupImageForUser(t, database, stor, "img-view3", "owner@example.com")
+
+	render := func(email string) string {
+		req := httptest.NewRequest(http.MethodGet, "/img-view3", nil)
+		req = chiRequest(req, map[string]string{"id": "img-view3"})
+		var rr *httptest.ResponseRecorder
+		if email == "" {
+			rr = executeAnonymous(h.View, req)
+		} else {
+			rr = executeAs(t, h.View, req, email)
+		}
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %q, got %d; body: %s", email, rr.Code, rr.Body.String())
+		}
+		return rr.Body.String()
+	}
+
+	editorMarkers := []string{`id="toolbar"`, `fabric-5.3.0.min.js`, `id="canvas-wrap"`}
+	owner := render("owner@example.com")
+	for _, m := range editorMarkers {
+		if !strings.Contains(owner, m) {
+			t.Errorf("owner page lacks %s", m)
+		}
+	}
+	if strings.Contains(owner, `id="screenshot"`) {
+		t.Error("owner page has the plain image instead of the canvas")
+	}
+
+	visitor := render("")
+	for _, m := range editorMarkers {
+		if strings.Contains(visitor, m) {
+			t.Errorf("visitor page contains %s", m)
+		}
+	}
+	if !strings.Contains(visitor, `id="screenshot"`) {
+		t.Error("visitor page lacks the plain image")
 	}
 }
 

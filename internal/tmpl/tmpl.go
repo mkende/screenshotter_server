@@ -28,12 +28,5 @@ func Parse() (map[string]*template.Template, error) {
 		out[page] = t
 	}
 
-	// annotate.html is a standalone page that defines its own "base" block.
-	t, err := template.New("").ParseFS(files, "annotate.html")
-	if err != nil {
-		return nil, fmt.Errorf("parse template %q: %w", "annotate.html", err)
-	}
-	out["annotate.html"] = t
-
 	return out, nil
 }

@@ -65,11 +65,15 @@
       </div>
     </div>
   </nav>
+  {{/* Pages that need to lay out the whole area between the navbar and the
+       footer themselves override "main"; the others just fill "content". */}}
+  {{block "main" .}}
   <main class="section" style="flex:1">
     <div class="container {{block "container-class" .}}{{end}}">
       {{block "content" .}}{{end}}
     </div>
   </main>
+  {{end}}
   <footer class="footer py-3">
     <div class="content has-text-centered is-size-7 has-text-grey">
       <strong>{{.Title}}</strong>

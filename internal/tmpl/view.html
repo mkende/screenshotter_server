@@ -2,8 +2,6 @@
 
 {{define "title"}}{{if .Image.Title}}{{.Image.Title}}{{else}}Unnamed screenshot{{end}} — Screenshotter{{end}}
 
-{{define "container-class"}}is-fluid{{end}}
-
 {{/* The navbar brand is the icon alone, to leave room for the title and URL. */}}
 {{define "brand"}}<img src="{{.IconURL}}" alt="{{.Title}}">{{end}}
 
@@ -124,29 +122,116 @@
   #meta-edit input[type="text"] { flex: 1; min-width: 5rem; max-width: 14rem; }
   #meta-edit input[type="url"]  { flex: 2; min-width: 8rem; }
 
-  /* Image fills the viewport below the navbar with minimal wasted space.
-     --above: navbar (52px) + section padding-top (3rem) + image-box padding (1rem).
-     --below: image-box padding-bottom (1rem) + section padding-bottom (3rem). */
-  :root {
-    --above: calc(52px + 3rem + 1rem);
-    --below: calc(1rem + 3rem);
+  /* The page fills the viewport: the image area between the toolbar and the
+     footer scrolls, the navbar and the footer stay in place. */
+  body { height: 100vh; }
+  #image-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
   }
-  .image-box {
-    background: #fff;
-    border: 1px solid #dbdbdb;
-    border-radius: 6px;
-    padding: 1rem;
-    text-align: center;
+  #image-area {
+    flex: 1;
+    min-height: 0;
     overflow: auto;
+    display: flex;
+    background: #eaeaea;
   }
-  /* Scale down only when the image exceeds the available viewport space. */
-  .image-box img {
+  /* Viewers get the image scaled down to fit; a click switches to 1:1 (and
+     back). margin: auto centers it without clipping when it overflows. */
+  #image-area.is-viewer { padding: 1rem; }
+  #image-area.is-viewer img {
+    flex: none;
     max-width: 100%;
-    max-height: calc(100svh - var(--above) - var(--below));
-    width: auto;
-    height: auto;
-    border-radius: 4px;
+    max-height: 100%;
+    margin: auto;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
   }
+  #image-area.is-viewer img.can-zoom { cursor: zoom-in; }
+  #image-area.is-viewer.is-actual-size img {
+    max-width: none;
+    max-height: none;
+    cursor: zoom-out;
+  }
+  /* The owner gets the Fabric canvas at 1:1, sized to at least the area so
+     annotations can be drawn around the image. The shadow sits under the
+     transparent canvas, at the image's position, so it is never saved. */
+  #canvas-wrap { position: relative; margin: auto; }
+  #image-shadow {
+    position: absolute;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+  }
+
+  /* ── Annotation toolbar ─────────────────────────────── */
+  #toolbar {
+    background: #f5f5f5;
+    border-bottom: 1px solid #dbdbdb;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .tool-btn {
+    width: 40px; height: 40px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: #555;
+    font-size: 16px;
+    transition: background 0.1s;
+  }
+  .tool-btn:hover { background: #e8e8e8; color: #222; }
+  .tool-btn.is-active { background: #dbedff; border-color: #3273dc; color: #3273dc; }
+  .tool-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .tool-btn:disabled:hover { background: none; color: #555; }
+  .tool-sep {
+    height: 32px;
+    border: none;
+    border-left: 1px solid #dbdbdb;
+    margin: 0 4px;
+  }
+  .swatch {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.1s;
+    outline: none;
+  }
+  .swatch:hover { transform: scale(1.15); }
+  .swatch.is-active { border-color: #333; box-shadow: 0 0 0 1px #fff inset; }
+  .stroke-btn {
+    width: 40px; height: 32px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .stroke-btn:hover { background: #e8e8e8; }
+  .stroke-btn.is-active { background: #dbedff; border-color: #3273dc; }
+  .stroke-line { background: #333; border-radius: 2px; width: 24px; }
+
+  /* Save status, right-aligned: changes are uploaded shortly after they are
+     made, so this is the only feedback about them. */
+  #save-status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #777;
+  }
+  #save-status[data-state="failed"] { color: #cc0f35; }
+  /* Their display rules would otherwise win over the hidden attribute. */
+  #save-status[hidden], #save-retry[hidden] { display: none; }
 </style>
 {{end}}
 
@@ -211,10 +296,6 @@
       <span>Download</span>
     </a>
     {{if .IsOwner}}
-    <a class="button is-warning is-light is-small" href="/{{.Image.ID}}/annotate">
-      <span class="icon is-small"><i class="fa fa-pen-ruler"></i></span>
-      <span>Annotate</span>
-    </a>
     <button id="btn-delete" class="button is-danger is-light is-small" data-image-id="{{.Image.ID}}">
       <span class="icon is-small"><i class="fa fa-trash"></i></span>
       <span>Delete</span>
@@ -242,10 +323,84 @@
 </div>
 {{end}}
 
-{{define "content"}}
-<div class="image-box">
-  <img src="/{{.Image.ID}}.png" alt="screenshot">
+{{define "main"}}
+<main id="image-main">
+{{if .IsOwner}}
+{{/* Annotation toolbar. Every change is uploaded on its own; undo and redo
+     re-upload the earlier state, so there is nothing to save or cancel. */}}
+<div id="toolbar">
+  <!-- Tools -->
+  <button class="tool-btn is-active" data-tool="select" title="Select (V)">
+    <i class="fa fa-arrow-pointer"></i>
+  </button>
+  <button class="tool-btn" data-tool="rect" title="Rectangle (R)">
+    <i class="fa-regular fa-square" style="font-size:14px"></i>
+  </button>
+  <button class="tool-btn" data-tool="arrow" title="Arrow (A)">
+    <i class="fa fa-arrow-right"></i>
+  </button>
+  <button class="tool-btn" data-tool="text" title="Text (T)">
+    <span style="font-weight:700;font-size:17px;font-family:serif">T</span>
+  </button>
+  <button class="tool-btn" data-tool="redact" title="Redact (X) — solid black rectangle">
+    <i class="fa fa-eye-slash" style="font-size:14px"></i>
+  </button>
+
+  <hr class="tool-sep">
+
+  <!-- Color palette -->
+  <button class="swatch is-active" data-color="#ef4444" style="background:#ef4444" title="Red"></button>
+  <button class="swatch" data-color="#eab308" style="background:#eab308" title="Yellow"></button>
+  <button class="swatch" data-color="#22c55e" style="background:#22c55e" title="Green"></button>
+  <button class="swatch" data-color="#3b82f6" style="background:#3b82f6" title="Blue"></button>
+  <button class="swatch" data-color="#111111" style="background:#111111" title="Black"></button>
+  <button class="swatch" data-color="#ffffff" style="background:#ffffff;border-color:#aaa" title="White"></button>
+
+  <hr class="tool-sep">
+
+  <!-- Stroke width -->
+  <button class="stroke-btn" data-sw="2" title="Thin">
+    <div class="stroke-line" style="height:2px"></div>
+  </button>
+  <button class="stroke-btn is-active" data-sw="4" title="Medium">
+    <div class="stroke-line" style="height:4px"></div>
+  </button>
+  <button class="stroke-btn" data-sw="7" title="Thick">
+    <div class="stroke-line" style="height:7px"></div>
+  </button>
+
+  <hr class="tool-sep">
+
+  <!-- Undo / Redo / Delete -->
+  <button id="undo-btn" class="tool-btn" title="Undo (Ctrl+Z)" disabled>
+    <i class="fa fa-rotate-left"></i>
+  </button>
+  <button id="redo-btn" class="tool-btn" title="Redo (Ctrl+Shift+Z)" disabled>
+    <i class="fa fa-rotate-right"></i>
+  </button>
+  <button id="delete-btn" class="tool-btn" title="Delete selected annotation (Del)" disabled>
+    <i class="fa fa-trash" style="font-size:14px"></i>
+  </button>
+
+  <div id="save-status" hidden>
+    <span class="icon is-small"><i id="save-status-icon" class="fa"></i></span>
+    <span id="save-status-text"></span>
+    <button id="save-retry" class="button is-danger is-light is-small" hidden>Retry</button>
+  </div>
 </div>
+{{end}}
+
+<div id="image-area" class="{{if .IsOwner}}is-editor{{else}}is-viewer{{end}}">
+  {{if .IsOwner}}
+  <div id="canvas-wrap">
+    <div id="image-shadow"></div>
+    <canvas id="c"></canvas>
+  </div>
+  {{else}}
+  <img id="screenshot" src="/{{.Image.ID}}.png" alt="screenshot">
+  {{end}}
+</div>
+</main>
 
 <script nonce="{{.Nonce}}">
 function copyText(text, btn) {
@@ -266,6 +421,8 @@ function copyText(text, btn) {
 
 function deleteImage(id) {
   if (!confirm('Delete this screenshot? This cannot be undone.')) return;
+  // Annotations still waiting to be uploaded are moot once the image is gone.
+  if (window.annotationEditor) window.annotationEditor.discardPendingSave();
   fetch('/' + id, { method: 'DELETE', credentials: 'same-origin', headers: {'X-Screenshotter-Request': '1'} })
     .then(r => {
       if (r.ok) { window.location.href = '/'; }
@@ -289,15 +446,17 @@ function saveEdit(e) {
   e.preventDefault();
   const title = document.getElementById('edit-title').value.trim();
   const sourceURL = document.getElementById('edit-source-url').value.trim();
-  fetch('/{{.Image.ID}}', {
+  // The page reloads on success, so annotations must be uploaded first.
+  const annotationsSaved = window.annotationEditor ? window.annotationEditor.save() : Promise.resolve();
+  annotationsSaved.then(() => fetch('/{{.Image.ID}}', {
     method: 'PATCH',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'X-Screenshotter-Request': '1' },
     body: JSON.stringify({ title, source_url: sourceURL }),
-  }).then(r => {
+  })).then(r => {
     if (r.ok) { window.location.reload(); }
     else { return r.json().then(j => { alert('Save failed: ' + (j.error || r.status)); }); }
-  }).catch(() => alert('Network error while saving.'));
+  }).catch(err => alert(err instanceof Error && err.message ? 'Save failed: ' + err.message : 'Network error while saving.'));
 }
 
 (function () {
@@ -342,6 +501,32 @@ function saveEdit(e) {
           else { return r.json().then(function(j) { alert('Delete failed: ' + (j.error || r.status)); }); }
         })
         .catch(function() { alert('Network error while deleting.'); });
+    });
+  }
+
+  // Viewer: a click on a scaled-down image shows it at 1:1, keeping the
+  // clicked point under the cursor; the next click scales it down again.
+  var area = document.getElementById('image-area');
+  var screenshot = document.getElementById('screenshot');
+  if (screenshot) {
+    var updateZoomable = function () {
+      var shown = screenshot.getBoundingClientRect();
+      var scaledDown = Math.round(shown.width) < screenshot.naturalWidth || Math.round(shown.height) < screenshot.naturalHeight;
+      screenshot.classList.toggle('can-zoom', area.classList.contains('is-actual-size') || scaledDown);
+    };
+    screenshot.addEventListener('load', updateZoomable);
+    if (screenshot.complete) updateZoomable();
+    new ResizeObserver(updateZoomable).observe(area);
+    screenshot.addEventListener('click', function (e) {
+      if (!screenshot.classList.contains('can-zoom')) return;
+      var before = screenshot.getBoundingClientRect();
+      var rx = (e.clientX - before.left) / before.width;
+      var ry = (e.clientY - before.top) / before.height;
+      area.classList.toggle('is-actual-size');
+      var after = screenshot.getBoundingClientRect();
+      area.scrollLeft += after.left + rx * after.width - e.clientX;
+      area.scrollTop += after.top + ry * after.height - e.clientY;
+      updateZoomable();
     });
   }
 
@@ -401,4 +586,871 @@ function saveEdit(e) {
   new ResizeObserver(layoutActions).observe(nav);
 }());
 </script>
+
+{{if .IsOwner}}
+<script src="/assets/fabric-5.3.0.min.js" nonce="{{.Nonce}}"></script>
+<script nonce="{{.Nonce}}">
+// Annotation editor. The screenshot is loaded once as the canvas background
+// and annotations are drawn over it. Every change is committed to a history
+// of snapshots (annotations only) and, shortly after, the canvas is rendered
+// to a PNG and uploaded, replacing the stored image. Undo and redo go back
+// to another snapshot and upload it the same way; because the original image
+// stays in memory, this works until the page is reloaded, after which the
+// uploaded annotations are part of the image.
+(function () {
+  'use strict';
+
+  const IMAGE_ID = '{{.Image.ID}}';
+  const FONT_NAME = 'ScreenshotterAnnotation';
+  const FONT_URL = '/static/font.ttf';
+  // Delay between the last change and its upload, during which an undo
+  // cancels the upload altogether.
+  const SAVE_DELAY_MS = 1000;
+  // Shapes smaller than this (in canvas pixels) are accidental clicks and
+  // are dropped. Scaled by the pixel density: screenshots taken on such
+  // screens have proportionally larger features.
+  const MIN_SHAPE_PX = 3 * (window.devicePixelRatio || 1);
+
+  // ── Cookie helpers ────────────────────────────────────
+  function getCookie(name) {
+    var match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+
+  function setCookie(name, value) {
+    var expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+    document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Lax';
+  }
+
+  // ── State ────────────────────────────────────────────
+  let currentTool = 'select';
+  let currentColor = '#ef4444';
+  let currentStroke = 4;
+  let isDrawing = false;
+  let drawStart = null;
+  let activeObj = null;  // object being drawn (preview)
+  let background = null; // the screenshot, kept out of the history snapshots
+  // Selection-edit state: tracks ambient color/stroke before an object is selected
+  // so they can be restored (unless changed) when the object is deselected.
+  let selectedObj = null;
+  let savedColor = null;    // ambient color when selection started
+  let savedStroke = null;   // ambient stroke when selection started
+  let colorChangedDuringSel = false;
+  let strokeChangedDuringSel = false;
+
+  // ── Canvas init ──────────────────────────────────────
+  const canvas = new fabric.Canvas('c', {
+    backgroundColor: null,
+    preserveObjectStacking: true,
+    selection: true,
+  });
+
+  function initCanvas(img) {
+    var area = document.getElementById('image-area');
+    var canvasW = Math.max(area.clientWidth, img.width);
+    var canvasH = Math.max(area.clientHeight, img.height);
+    img.set({
+      left: Math.floor((canvasW - img.width) / 2),
+      top: Math.floor((canvasH - img.height) / 2),
+      selectable: false, evented: false,
+      hasControls: false,
+      lockMovementX: true, lockMovementY: true,
+      isBackground: true,
+    });
+    canvas.setWidth(canvasW);
+    canvas.setHeight(canvasH);
+    canvas.add(img);
+    canvas.renderAll();
+    background = img;
+    var shadow = document.getElementById('image-shadow');
+    shadow.style.left = img.left + 'px';
+    shadow.style.top = img.top + 'px';
+    shadow.style.width = img.width + 'px';
+    shadow.style.height = img.height + 'px';
+    history.push(snapshot());
+    historyIndex = 0;
+    savedRev = history[0].rev;
+    updateHistoryButtons();
+  }
+
+  // Load font then image
+  const fontFace = new FontFace(FONT_NAME, 'url(' + FONT_URL + ')');
+  document.fonts.add(fontFace);
+  fontFace.load().then(function () {
+    fabric.Image.fromURL('/' + IMAGE_ID + '.png', function (img) {
+      initCanvas(img);
+    }, { crossOrigin: 'anonymous' });
+  }).catch(function () {
+    // Font failed to load — proceed without custom font.
+    fabric.Image.fromURL('/' + IMAGE_ID + '.png', function (img) {
+      initCanvas(img);
+    }, { crossOrigin: 'anonymous' });
+  });
+
+  // ── History ──────────────────────────────────────────
+  // Snapshots hold the annotation objects only: the background is never
+  // reloaded from the server, which holds the annotated image once a
+  // snapshot has been uploaded. Each snapshot has a unique revision so the
+  // one the server holds can be told apart even after it left the history.
+  let history = [];
+  let historyIndex = -1;
+  let savedRev = 0;    // revision of the snapshot the server holds
+  let revCounter = 0;
+
+  function snapshot() {
+    // Serialized through the canvas so that objects in a multi-selection
+    // get their absolute position; Arrow's toObject relies on that too.
+    var objects = canvas.toObject(['isBackground']).objects.filter(function (o) {
+      return !o.isBackground;
+    });
+    return { rev: ++revCounter, objects: objects };
+  }
+
+  // Replaces the annotations on the canvas with those of the snapshot.
+  function restore(snap) {
+    canvas.discardActiveObject();
+    canvas.getObjects().filter(function (o) { return !o.isBackground; }).forEach(function (o) {
+      canvas.remove(o);
+    });
+    fabric.util.enlivenObjects(snap.objects, function (objs) {
+      objs.forEach(function (o) {
+        o.set({ selectable: currentTool === 'select', evented: currentTool === 'select' });
+        canvas.add(o);
+      });
+      canvas.renderAll();
+    });
+  }
+
+  // Records the current canvas state as a new snapshot and schedules its upload.
+  function commit() {
+    history.length = historyIndex + 1;  // drop the redo tail
+    history.push(snapshot());
+    historyIndex = history.length - 1;
+    updateHistoryButtons();
+    scheduleSave();
+  }
+
+  function undo() {
+    if (historyIndex <= 0) return;
+    restoreToolbarIfNeeded();
+    selectedObj = null;
+    historyIndex--;
+    restore(history[historyIndex]);
+    updateHistoryButtons();
+    scheduleSave();
+  }
+
+  function redo() {
+    if (historyIndex >= history.length - 1) return;
+    restoreToolbarIfNeeded();
+    selectedObj = null;
+    historyIndex++;
+    restore(history[historyIndex]);
+    updateHistoryButtons();
+    scheduleSave();
+  }
+
+  function updateHistoryButtons() {
+    document.getElementById('undo-btn').disabled = historyIndex <= 0;
+    document.getElementById('redo-btn').disabled = historyIndex >= history.length - 1;
+  }
+
+  // ── Delete selected ──────────────────────────────────
+  function deleteSelected() {
+    var objs = canvas.getActiveObjects().filter(function (o) { return !o.isBackground; });
+    if (!objs.length) return;
+    objs.forEach(function (o) { canvas.remove(o); });
+    canvas.discardActiveObject();
+    canvas.renderAll();
+    commit();
+  }
+
+  function updateDeleteBtn() {
+    var hasSelectable = canvas.getActiveObjects().some(function (o) { return !o.isBackground; });
+    document.getElementById('delete-btn').disabled = !hasSelectable;
+  }
+
+  // ── Tool management ──────────────────────────────────
+  function setTool(tool) {
+    if (currentTool === 'select' && tool !== 'select') {
+      restoreToolbarIfNeeded();
+      selectedObj = null;
+    }
+    currentTool = tool;
+    canvas.isDrawingMode = false;
+    canvas.selection = (tool === 'select');
+
+    canvas.forEachObject(function (obj) {
+      if (!obj.isBackground) {
+        obj.selectable = (tool === 'select');
+        obj.evented = (tool === 'select');
+      }
+    });
+
+    var cursors = { select: 'default', rect: 'crosshair', arrow: 'crosshair', text: 'text' };
+    canvas.defaultCursor = cursors[tool] || 'default';
+    canvas.hoverCursor = (tool === 'select') ? 'move' : (cursors[tool] || 'default');
+
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(function (btn) {
+      btn.classList.toggle('is-active', btn.dataset.tool === tool);
+    });
+  }
+
+  function setColor(color) {
+    currentColor = color;
+    showColorInToolbar(color);
+    setCookie('annotate_color', color);
+    if (selectedObj) {
+      colorChangedDuringSel = true;
+      applyColorToObject(selectedObj, color);
+      commit();
+    }
+  }
+
+  function setStroke(w) {
+    currentStroke = w;
+    showStrokeInToolbar(w);
+    setCookie('annotate_stroke', String(w));
+    if (selectedObj) {
+      strokeChangedDuringSel = true;
+      selectedObj = applyStrokeToObject(selectedObj, w);
+      commit();
+    }
+  }
+
+  // ── Wire toolbar buttons ─────────────────────────────
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(function (btn) {
+    btn.addEventListener('click', function () { setTool(btn.dataset.tool); });
+  });
+  document.querySelectorAll('.swatch[data-color]').forEach(function (swatch) {
+    swatch.addEventListener('click', function () { setColor(swatch.dataset.color); });
+  });
+  document.querySelectorAll('.stroke-btn[data-sw]').forEach(function (btn) {
+    btn.addEventListener('click', function () { setStroke(parseInt(btn.dataset.sw, 10)); });
+  });
+  document.getElementById('undo-btn').addEventListener('click', undo);
+  document.getElementById('redo-btn').addEventListener('click', redo);
+  document.getElementById('delete-btn').addEventListener('click', deleteSelected);
+  document.getElementById('save-retry').addEventListener('click', flush);
+
+  // ── Restore preferences from cookies ─────────────────
+  // The tool is deliberately not remembered: the page always opens in select
+  // mode so that a stray click never draws (and uploads) anything.
+  (function () {
+    var color = getCookie('annotate_color');
+    if (color) {
+      var swatch = document.querySelector('.swatch[data-color="' + color + '"]');
+      if (swatch) setColor(color);
+    }
+    var stroke = getCookie('annotate_stroke');
+    if (stroke) {
+      var sw = parseInt(stroke, 10);
+      var strokeBtn = document.querySelector('.stroke-btn[data-sw="' + sw + '"]');
+      if (strokeBtn) setStroke(sw);
+    }
+  }());
+
+  // ── Arrow class ──────────────────────────────────────
+  // Custom Fabric object that renders a shaft + filled arrowhead from two endpoints
+  // (x1,y1) and (x2,y2) stored in canvas-absolute coordinates. Translation of the
+  // whole arrow is the only Fabric transform allowed; rotation/scaling are locked,
+  // and endpoint movement is exposed through two custom corner controls (ep1/ep2).
+  var Arrow = fabric.util.createClass(fabric.Object, {
+    type: 'arrow',
+    hasRotatingPoint: false,
+    lockRotation: true,
+    lockScalingX: true,
+    lockScalingY: true,
+    lockSkewingX: true,
+    lockSkewingY: true,
+    objectCaching: false,
+    fill: null,
+
+    initialize: function (options) {
+      options = options || {};
+      this.callSuper('initialize', options);
+      this.x1 = options.x1 != null ? options.x1 : 0;
+      this.y1 = options.y1 != null ? options.y1 : 0;
+      this.x2 = options.x2 != null ? options.x2 : 0;
+      this.y2 = options.y2 != null ? options.y2 : 0;
+      this._updateGeometry();
+    },
+
+    // Returns the points needed to render the arrow given current x1/y1/x2/y2 and strokeWidth.
+    _arrowGeom: function () {
+      var ang = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
+      var hs = Math.max(14, this.strokeWidth * 4);
+      var bo = hs * Math.cos(Math.PI / 6);
+      return {
+        lx2: this.x2 - bo * Math.cos(ang),
+        ly2: this.y2 - bo * Math.sin(ang),
+        hw1x: this.x2 - hs * Math.cos(ang - Math.PI / 6),
+        hw1y: this.y2 - hs * Math.sin(ang - Math.PI / 6),
+        hw2x: this.x2 - hs * Math.cos(ang + Math.PI / 6),
+        hw2y: this.y2 - hs * Math.sin(ang + Math.PI / 6),
+      };
+    },
+
+    // Folds any pending translation (left/top moved since last geometry update) into
+    // x1/y1/x2/y2. Required before any operation that recomputes the bounding box from
+    // endpoints, because translation drags only update left/top — not the endpoints —
+    // until the move completes. Multi-object drags don't fire object:modified per child,
+    // so callers must sync lazily when next touching the geometry.
+    _syncTranslation: function () {
+      if (this._geomLeft == null) return;
+      var dx = this.left - this._geomLeft;
+      var dy = this.top - this._geomTop;
+      if (dx === 0 && dy === 0) return;
+      this.x1 += dx; this.y1 += dy;
+      this.x2 += dx; this.y2 += dy;
+      this._geomLeft = this.left;
+      this._geomTop = this.top;
+    },
+
+    // Recomputes left/top/width/height from the endpoints and resets the geometry
+    // reference (_geomLeft/_geomTop). The reference lets _render and the control
+    // positionHandlers stay correct while Fabric updates left/top during a translation
+    // drag (x1/y1/x2/y2 are only synced once the move completes, in object:modified).
+    _updateGeometry: function () {
+      var g = this._arrowGeom();
+      var pad = this.strokeWidth / 2;
+      var minX = Math.min(this.x1, this.x2, g.hw1x, g.hw2x) - pad;
+      var minY = Math.min(this.y1, this.y2, g.hw1y, g.hw2y) - pad;
+      var maxX = Math.max(this.x1, this.x2, g.hw1x, g.hw2x) + pad;
+      var maxY = Math.max(this.y1, this.y2, g.hw1y, g.hw2y) + pad;
+      this.set({ left: minX, top: minY, width: maxX - minX, height: maxY - minY });
+      this._geomLeft = minX;
+      this._geomTop = minY;
+      this.setCoords();
+    },
+
+    // Renders the arrow. Fabric has already translated ctx to (left + width/2,
+    // top + height/2). We use the geometry-reference center (_geomLeft + width/2)
+    // so endpoint coordinates render correctly even when current left/top has been
+    // shifted by an in-progress translation drag.
+    _render: function (ctx) {
+      var g = this._arrowGeom();
+      var cx = this._geomLeft + this.width / 2;
+      var cy = this._geomTop + this.height / 2;
+
+      ctx.save();
+      ctx.strokeStyle = this.stroke;
+      ctx.lineWidth = this.strokeWidth;
+      ctx.beginPath();
+      ctx.moveTo(this.x1 - cx, this.y1 - cy);
+      ctx.lineTo(g.lx2 - cx, g.ly2 - cy);
+      ctx.stroke();
+
+      ctx.fillStyle = this.stroke;
+      ctx.beginPath();
+      ctx.moveTo(this.x2 - cx, this.y2 - cy);
+      ctx.lineTo(g.hw1x - cx, g.hw1y - cy);
+      ctx.lineTo(g.hw2x - cx, g.hw2y - cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    },
+
+    // Restricts hit-testing to the shaft (with a small margin) and the arrowhead
+    // triangle, so clicks inside the arrow's bounding box but off the visible
+    // geometry fall through to objects underneath.
+    containsPoint: function (point) {
+      this._syncTranslation();
+      var g = this._arrowGeom();
+      var margin = Math.max(this.strokeWidth / 2 + 3, 6);
+      if (pointToSegmentDistance(point.x, point.y, this.x1, this.y1, g.lx2, g.ly2) <= margin) {
+        return true;
+      }
+      return pointInTriangle(point.x, point.y, this.x2, this.y2, g.hw1x, g.hw1y, g.hw2x, g.hw2y);
+    },
+
+    // Serializes the endpoints with any pending translation applied, without
+    // touching the object: while the arrow is part of a multi-selection the
+    // canvas serializer temporarily gives it its absolute left/top, so the
+    // delta to the geometry reference is the translation to add.
+    toObject: function (propertiesToInclude) {
+      var object = this.callSuper('toObject', propertiesToInclude);
+      var dx = this._geomLeft == null ? 0 : this.left - this._geomLeft;
+      var dy = this._geomTop == null ? 0 : this.top - this._geomTop;
+      object.x1 = this.x1 + dx;
+      object.y1 = this.y1 + dy;
+      object.x2 = this.x2 + dx;
+      object.y2 = this.y2 + dy;
+      return object;
+    },
+  });
+
+  function pointToSegmentDistance(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay;
+    var len2 = dx * dx + dy * dy;
+    var t = len2 === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / len2;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    var qx = ax + t * dx, qy = ay + t * dy;
+    return Math.hypot(px - qx, py - qy);
+  }
+
+  function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
+    var d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+    var d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
+    var d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
+    var hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+    var hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+    return !(hasNeg && hasPos);
+  }
+
+  Arrow.fromObject = function (object, callback) {
+    var arrow = new Arrow(object);
+    if (callback) callback(arrow);
+    return arrow;
+  };
+
+  fabric.Arrow = Arrow;
+
+  // ── Endpoint controls (replace the default 8 BB handles with two square endpoints) ──
+  function arrowEndpointPositionHandler(propX, propY) {
+    return function (dim, finalMatrix, fabricObject) {
+      var cx = fabricObject._geomLeft + fabricObject.width / 2;
+      var cy = fabricObject._geomTop + fabricObject.height / 2;
+      return fabric.util.transformPoint(
+        { x: fabricObject[propX] - cx, y: fabricObject[propY] - cy },
+        finalMatrix
+      );
+    };
+  }
+
+  function arrowEndpointActionHandler(propX, propY) {
+    return function (eventData, transform, x, y) {
+      var target = transform.target;
+      // Fold pending translation into endpoints first so the *other* endpoint
+      // doesn't get stranded at its pre-translation position.
+      target._syncTranslation();
+      target[propX] = x;
+      target[propY] = y;
+      target._updateGeometry();
+      return true;
+    };
+  }
+
+  Arrow.prototype.controls = {
+    ep1: new fabric.Control({
+      positionHandler: arrowEndpointPositionHandler('x1', 'y1'),
+      actionHandler: arrowEndpointActionHandler('x1', 'y1'),
+      cursorStyle: 'crosshair',
+      actionName: 'modifyArrow',
+    }),
+    ep2: new fabric.Control({
+      positionHandler: arrowEndpointPositionHandler('x2', 'y2'),
+      actionHandler: arrowEndpointActionHandler('x2', 'y2'),
+      cursorStyle: 'crosshair',
+      actionName: 'modifyArrow',
+    }),
+  };
+
+  // ── Toolbar display helpers ──────────────────────────
+  function showColorInToolbar(color) {
+    document.querySelectorAll('.swatch').forEach(function (s) {
+      s.classList.toggle('is-active', s.dataset.color === color);
+    });
+  }
+
+  function showStrokeInToolbar(sw) {
+    document.querySelectorAll('.stroke-btn').forEach(function (s) {
+      s.classList.toggle('is-active', parseInt(s.dataset.sw, 10) === sw);
+    });
+  }
+
+  // ── Read/write color and stroke on canvas objects ────
+  function getObjectColor(obj) {
+    if (obj.type === 'arrow') return obj.stroke;
+    if (obj.type === 'rect' && obj.fill === 'transparent') return obj.stroke;
+    if (obj.type === 'i-text') return obj.fill;
+    return null;
+  }
+
+  function getObjectStrokeWidth(obj) {
+    if (obj.type === 'arrow') return obj.strokeWidth;
+    if (obj.type === 'rect' && obj.fill === 'transparent') return obj.strokeWidth;
+    return null;
+  }
+
+  function applyColorToObject(obj, color) {
+    if (obj.type === 'arrow') {
+      obj.set({ stroke: color });
+    } else if (obj.type === 'rect' && obj.fill === 'transparent') {
+      obj.set({ stroke: color });
+    } else if (obj.type === 'i-text') {
+      obj.set({ fill: color });
+    }
+    canvas.renderAll();
+  }
+
+  function applyStrokeToObject(obj, sw) {
+    if (obj.type === 'arrow') {
+      obj._syncTranslation();
+      obj.set({ strokeWidth: sw });
+      // Arrowhead size depends on strokeWidth, so the bounding box must be recomputed.
+      obj._updateGeometry();
+      canvas.renderAll();
+    } else if (obj.type === 'rect' && obj.fill === 'transparent') {
+      obj.set({ strokeWidth: sw });
+      canvas.renderAll();
+    }
+    return obj;
+  }
+
+  // ── Selection state management ───────────────────────
+  function onObjectSelected(obj) {
+    if (!obj || obj.isBackground) { selectedObj = null; return; }
+    selectedObj = obj;
+    savedColor = currentColor;
+    savedStroke = currentStroke;
+    colorChangedDuringSel = false;
+    strokeChangedDuringSel = false;
+    var c = getObjectColor(obj);
+    var s = getObjectStrokeWidth(obj);
+    if (c !== null) { currentColor = c; showColorInToolbar(c); }
+    if (s !== null) { currentStroke = s; showStrokeInToolbar(s); }
+  }
+
+  // Restores pre-selection toolbar values for any dimension the user did not change
+  // while the object was selected, then clears the saved state.
+  function restoreToolbarIfNeeded() {
+    if (savedColor === null) return;
+    if (!colorChangedDuringSel) { currentColor = savedColor; showColorInToolbar(savedColor); }
+    if (!strokeChangedDuringSel) { currentStroke = savedStroke; showStrokeInToolbar(savedStroke); }
+    savedColor = null;
+    savedStroke = null;
+    colorChangedDuringSel = false;
+    strokeChangedDuringSel = false;
+  }
+
+  // ── Drawing events ───────────────────────────────────
+  canvas.on('mouse:down', function (opt) {
+    if (currentTool === 'select') return;
+
+    var ptr = canvas.getPointer(opt.e);
+
+    if (currentTool === 'text') {
+      var placeholder = 'Text';
+      var text = new fabric.IText(placeholder, {
+        left: ptr.x, top: ptr.y,
+        fontSize: 20,
+        fontFamily: FONT_NAME,
+        fill: currentColor,
+        selectable: true, evented: true,
+      });
+      canvas.add(text);
+      canvas.setActiveObject(text);
+      text.enterEditing();
+      text.selectAll();
+      canvas.renderAll();
+      text.on('editing:exited', function () {
+        if (!text.text) {
+          canvas.remove(text);
+          commit();
+        } else if (text.text === placeholder) {
+          // Fabric fires object:modified (which commits) only when the text
+          // changed during editing.
+          commit();
+        }
+      });
+      return;
+    }
+
+    isDrawing = true;
+    drawStart = { x: ptr.x, y: ptr.y };
+
+    if (currentTool === 'rect') {
+      activeObj = new fabric.Rect({
+        left: ptr.x, top: ptr.y, width: 1, height: 1,
+        fill: 'transparent',
+        stroke: currentColor, strokeWidth: currentStroke,
+        selectable: false, evented: false,
+      });
+      canvas.add(activeObj);
+    } else if (currentTool === 'redact') {
+      activeObj = new fabric.Rect({
+        left: ptr.x, top: ptr.y, width: 1, height: 1,
+        fill: '#111111', stroke: 'transparent', strokeWidth: 0,
+        selectable: false, evented: false,
+      });
+      canvas.add(activeObj);
+    } else if (currentTool === 'arrow') {
+      activeObj = new fabric.Arrow({
+        x1: ptr.x, y1: ptr.y,
+        x2: ptr.x + 1, y2: ptr.y,
+        stroke: currentColor, strokeWidth: currentStroke,
+        selectable: false, evented: false,
+      });
+      canvas.add(activeObj);
+    }
+  });
+
+  canvas.on('mouse:move', function (opt) {
+    if (!isDrawing || !activeObj) return;
+    var ptr = canvas.getPointer(opt.e);
+
+    if (currentTool === 'rect' || currentTool === 'redact') {
+      activeObj.set({
+        left: Math.min(drawStart.x, ptr.x),
+        top: Math.min(drawStart.y, ptr.y),
+        width: Math.abs(ptr.x - drawStart.x),
+        height: Math.abs(ptr.y - drawStart.y),
+      });
+    } else if (currentTool === 'arrow') {
+      activeObj.set({ x2: ptr.x, y2: ptr.y });
+      activeObj._updateGeometry();
+    }
+    canvas.renderAll();
+  });
+
+  // Reports whether the object is too small to be anything but an accidental click.
+  function isDegenerate(obj) {
+    if (obj.type === 'arrow') {
+      return Math.hypot(obj.x2 - obj.x1, obj.y2 - obj.y1) < MIN_SHAPE_PX;
+    }
+    return Math.max(obj.width, obj.height) < MIN_SHAPE_PX;
+  }
+
+  canvas.on('mouse:up', function () {
+    if (!isDrawing) return;
+    isDrawing = false;
+
+    if (activeObj) {
+      if (isDegenerate(activeObj)) {
+        canvas.remove(activeObj);
+        canvas.renderAll();
+      } else {
+        activeObj.setCoords();
+        activeObj.set({ selectable: false, evented: false });
+        commit();
+      }
+      activeObj = null;
+    }
+  });
+
+  // Commit after moving/scaling existing objects; eagerly fold any translation
+  // into the arrow's endpoints so the snapshot captures the post-move state.
+  canvas.on('object:modified', function (opt) {
+    var obj = opt.target;
+    if (obj && obj.type === 'arrow') obj._syncTranslation();
+    commit();
+  });
+
+  // ── Selection: reflect/edit object color and stroke ──
+  canvas.on('selection:created', function () {
+    var objs = canvas.getActiveObjects();
+    if (objs.length === 1) onObjectSelected(objs[0]);
+    else selectedObj = null;
+    updateDeleteBtn();
+  });
+
+  canvas.on('selection:updated', function () {
+    restoreToolbarIfNeeded();
+    var objs = canvas.getActiveObjects();
+    if (objs.length === 1) onObjectSelected(objs[0]);
+    else selectedObj = null;
+    updateDeleteBtn();
+  });
+
+  canvas.on('selection:cleared', function () {
+    restoreToolbarIfNeeded();
+    selectedObj = null;
+    updateDeleteBtn();
+  });
+
+  // ── Rendering a snapshot ──────────────────────────────
+  // Returns the union bounding rect of the objects of a canvas, clamped to
+  // its bounds.
+  function getContentBoundingBox(c) {
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    c.forEachObject(function (obj) {
+      var r = obj.getBoundingRect(true, true);
+      minX = Math.min(minX, r.left);
+      minY = Math.min(minY, r.top);
+      maxX = Math.max(maxX, r.left + r.width);
+      maxY = Math.max(maxY, r.top + r.height);
+    });
+    minX = Math.max(0, Math.floor(minX));
+    minY = Math.max(0, Math.floor(minY));
+    maxX = Math.min(c.getWidth(), Math.ceil(maxX));
+    maxY = Math.min(c.getHeight(), Math.ceil(maxY));
+    return { left: minX, top: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  // Renders the background and the snapshot's annotations, cropped to their
+  // bounding box, to a PNG blob. Done on an offscreen canvas so the live one
+  // (selection handles, an object being drawn) is left alone.
+  function renderSnapshot(snap) {
+    return new Promise(function (resolve, reject) {
+      var off = new fabric.StaticCanvas(null, { width: canvas.getWidth(), height: canvas.getHeight() });
+      off.add(new fabric.Image(background.getElement(), { left: background.left, top: background.top }));
+      fabric.util.enlivenObjects(snap.objects, function (objs) {
+        objs.forEach(function (o) { off.add(o); });
+        var bb = getContentBoundingBox(off);
+        var full = off.toCanvasElement();
+        off.dispose();
+        var crop = document.createElement('canvas');
+        crop.width = bb.width;
+        crop.height = bb.height;
+        crop.getContext('2d').drawImage(full, bb.left, bb.top, bb.width, bb.height, 0, 0, bb.width, bb.height);
+        crop.toBlob(function (blob) {
+          if (blob) resolve(blob);
+          else reject(new Error('could not render the image'));
+        }, 'image/png');
+      });
+    });
+  }
+
+  // ── Upload ────────────────────────────────────────────
+  // At most one upload runs at a time; when it completes, the current
+  // snapshot is uploaded in turn if it changed meanwhile. A failed upload is
+  // retried on the next change or from the Retry button.
+  let saveTimer = null;
+  let uploading = false;
+  let saveError = null;   // message of the last failed upload
+  let statusTimer = null;
+  let leaving = false;    // set before an intentional navigation
+  let saveWaiters = [];   // settled once the server holds the current snapshot
+
+  function unsaved() {
+    return history[historyIndex].rev !== savedRev;
+  }
+
+  // Nothing is shown during the delay: the status only reflects uploads.
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, SAVE_DELAY_MS);
+  }
+
+  function flush() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    if (uploading) return;
+    if (!unsaved()) {
+      setStatus('saved');
+      settleSaveWaiters(null);
+      return;
+    }
+    var snap = history[historyIndex];
+    uploading = true;
+    saveError = null;
+    setStatus('saving');
+    renderSnapshot(snap).then(upload).then(function () {
+      savedRev = snap.rev;
+    }, function (err) {
+      saveError = err.message;
+    }).then(function () {
+      uploading = false;
+      if (saveError) {
+        setStatus('failed', saveError);
+        settleSaveWaiters(new Error(saveError));
+        return;
+      }
+      flush();  // uploads again if the snapshot changed meanwhile
+    });
+  }
+
+  function upload(blob) {
+    return fetch('/' + IMAGE_ID + '/annotate', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'image/png', 'X-Screenshotter-Request': '1' },
+      body: blob,
+    }).then(function (resp) {
+      if (resp.ok) return;
+      return resp.json().catch(function () { return {}; }).then(function (j) {
+        throw new Error(j.error || ('HTTP ' + resp.status));
+      });
+    }, function () {
+      throw new Error('network error');
+    });
+  }
+
+  function settleSaveWaiters(err) {
+    var waiters = saveWaiters;
+    saveWaiters = [];
+    waiters.forEach(function (w) { if (err) w.reject(err); else w.resolve(); });
+  }
+
+  function setStatus(state, message) {
+    var box = document.getElementById('save-status');
+    var icon = document.getElementById('save-status-icon');
+    var text = document.getElementById('save-status-text');
+    clearTimeout(statusTimer);
+    box.hidden = false;
+    box.dataset.state = state;
+    document.getElementById('save-retry').hidden = state !== 'failed';
+    if (state === 'saving') {
+      icon.className = 'fa fa-spinner fa-spin';
+      text.textContent = 'Saving…';
+    } else if (state === 'saved') {
+      icon.className = 'fa fa-check';
+      text.textContent = 'Saved';
+      statusTimer = setTimeout(function () { box.hidden = true; }, 2000);
+    } else {
+      icon.className = 'fa fa-triangle-exclamation';
+      text.textContent = 'Save failed: ' + message;
+    }
+  }
+
+  // Warn before leaving while a change is not yet on the server.
+  window.addEventListener('beforeunload', function (e) {
+    if (leaving || (!uploading && !unsaved())) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+
+  // Hooks for the page's other actions (see the script above).
+  window.annotationEditor = {
+    // Uploads the current state without waiting for the delay. Returns a
+    // promise settled once the server holds it (rejected if the upload failed).
+    save: function () {
+      return new Promise(function (resolve, reject) {
+        saveWaiters.push({ resolve: resolve, reject: reject });
+        flush();
+      });
+    },
+    // Drops any pending upload and disarms the unsaved-changes warning.
+    discardPendingSave: function () {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      leaving = true;
+    },
+  };
+
+  // ── Keyboard shortcuts ────────────────────────────────
+  document.addEventListener('keydown', function (e) {
+    var tag = document.activeElement && document.activeElement.tagName;
+    // Don't intercept keys while typing in a Fabric IText or in the title form
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+      e.preventDefault();
+      redo();
+      return;
+    }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key === 'v' || e.key === 'Escape') { setTool('select'); return; }
+      if (e.key === 'r') { setTool('rect'); return; }
+      if (e.key === 'a') { setTool('arrow'); return; }
+      if (e.key === 't') { setTool('text'); return; }
+      if (e.key === 'x') { setTool('redact'); return; }
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      var active = canvas.getActiveObject();
+      if (active && !active.isBackground && active.type !== 'i-text') {
+        deleteSelected();
+      }
+    }
+  });
+
+}());
+</script>
+{{end}}
 {{end}}

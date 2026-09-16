@@ -7,44 +7,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mkende/screenshotter_server/internal/auth"
-	"github.com/mkende/screenshotter_server/internal/db"
 	"github.com/mkende/screenshotter_server/internal/httputil"
 	"github.com/mkende/screenshotter_server/internal/storage"
 )
-
-type annotateData struct {
-	pageData
-	Image *db.Image
-}
-
-// AnnotateView serves the annotation editor page for GET /{id}/annotate.
-func (h *Handlers) AnnotateView(w http.ResponseWriter, r *http.Request) {
-	identity := auth.FromContext(r.Context())
-	if identity == nil {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	id := chi.URLParam(r, "id")
-
-	img, err := h.db.GetImage(r.Context(), id)
-	if err != nil {
-		slog.Error("get image for annotate view", "id", id, "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if img == nil {
-		http.NotFound(w, r)
-		return
-	}
-	if img.OwnerID != identity.Email {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-	h.renderTemplate(w, "annotate.html", annotateData{
-		pageData: h.newPageData(r),
-		Image:    img,
-	})
-}
 
 // Annotate handles POST /{id}/annotate: replaces the stored PNG with the
 // annotated version rendered client-side by Fabric.js.
