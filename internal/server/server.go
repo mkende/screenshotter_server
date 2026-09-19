@@ -80,7 +80,7 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 
 	// Static assets (CSS, JS, webfonts, icons) — embedded in the binary, no
 	// auth required.
-	r.Handle("/assets/*", http.StripPrefix("/assets", cacheAssets(http.FileServerFS(static.Files))))
+	r.Handle("/assets/*", http.StripPrefix("/assets", serveAssets(http.FileServerFS(static.Files))))
 
 	// OIDC routes: present only when OIDC is enabled. The middleware stack
 	// (DomainRedirect, SecurityHeaders, CORS, auth providers) still runs so
@@ -181,18 +181,22 @@ const (
 // webfonts-6.5.0/fa-solid-900.woff2.
 var versionedAsset = regexp.MustCompile(`^[^/]*-[0-9]+\.[0-9]+\.[0-9]+[./]`)
 
-// cacheAssets adds the Cache-Control header to the files that next serves
-// from the embedded assets. Missing files get none, so a 404 is not cached.
-func cacheAssets(next http.Handler) http.Handler {
+// serveAssets restricts next, the file server of the embedded assets, to
+// the files themselves (it would otherwise list directories) and adds their
+// Cache-Control header. Only served files get one, so a 404 is not cached.
+func serveAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(r.URL.Path, "/")
-		if info, err := fs.Stat(static.Files, name); err == nil && !info.IsDir() {
-			cc := dayCacheControl
-			if versionedAsset.MatchString(name) {
-				cc = immutableCacheControl
-			}
-			w.Header().Set("Cache-Control", cc)
+		info, err := fs.Stat(static.Files, name)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
 		}
+		cc := dayCacheControl
+		if versionedAsset.MatchString(name) {
+			cc = immutableCacheControl
+		}
+		w.Header().Set("Cache-Control", cc)
 		next.ServeHTTP(w, r)
 	})
 }

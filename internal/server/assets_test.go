@@ -56,8 +56,8 @@ func TestFaviconHandler_ServesConfiguredFile(t *testing.T) {
 	}
 }
 
-func TestCacheAssets_HeadersByAssetKind(t *testing.T) {
-	h := cacheAssets(http.FileServerFS(static.Files))
+func TestServeAssets_HeadersByAssetKind(t *testing.T) {
+	h := serveAssets(http.FileServerFS(static.Files))
 	cases := []struct {
 		path   string
 		status int
@@ -68,8 +68,10 @@ func TestCacheAssets_HeadersByAssetKind(t *testing.T) {
 		{"/icon-64.png", http.StatusOK, dayCacheControl},
 		{"/favicon.ico", http.StatusOK, dayCacheControl},
 		{"/missing-1.0.0.css", http.StatusNotFound, ""},
-		// The file server lists directories; a listing is not cached.
-		{"/webfonts-6.5.0/", http.StatusOK, ""},
+		// Directories are not listed.
+		{"/", http.StatusNotFound, ""},
+		{"/webfonts-6.5.0/", http.StatusNotFound, ""},
+		{"/webfonts-6.5.0", http.StatusNotFound, ""},
 	}
 	for _, tc := range cases {
 		rr := httptest.NewRecorder()
