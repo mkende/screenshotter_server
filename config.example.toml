@@ -20,7 +20,7 @@ canonical_address = "https://screenshots.example.com"
 
 # Path to a custom favicon, also shown as the site icon in the navbar of the
 # image page. When empty, falls back to <server.assets_path>/favicon.ico when
-# that directory is configured (and to the built-in icon in the navbar).
+# that directory is configured, else to the built-in icon.
 # favicon_path = "/var/lib/screenshotter/favicon.ico"
 
 # CIDRs of reverse proxies whose forwarding headers are trusted:

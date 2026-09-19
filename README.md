@@ -193,7 +193,8 @@ production builds simultaneously.
 - **`log_level`** — Minimum log severity: `debug`, `info`, `warn`, `error`.
   Default: `info`.
 - **`favicon_path`** — Path to a custom favicon file. It is also shown as the
-  site icon in the navbar of the image page (the default icon otherwise).
+  site icon in the navbar of the image page. Optional: without it (and
+  without `server.assets_path`), the built-in icon is served.
 - **`trusted_proxy`** — CIDRs of reverse proxies whose forwarding headers are
   trusted. Required when using the Tailscale or proxy auth backends.
 - **`source_url_schemes`** — Allowlist of URL schemes accepted for an image's

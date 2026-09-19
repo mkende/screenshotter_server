@@ -68,9 +68,12 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	})
 	rlMiddleware := ratelimit.Middleware(rl)
 
-	// Favicon — served directly from disk; no auth required.
+	// Favicon — the configured file, served directly from disk, else the
+	// embedded default; no auth required.
 	if faviconFile := cfg.FaviconFile(); faviconFile != "" {
 		r.Get("/favicon.ico", faviconHandler(faviconFile))
+	} else {
+		r.Get("/favicon.ico", embeddedFaviconHandler)
 	}
 
 	// Static assets (CSS, JS, webfonts) — embedded in the binary, no auth required.
@@ -157,6 +160,11 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	return r
 }
 
+// faviconCacheControl lets browsers keep the favicon for a day: they fetch
+// it on every page load (Chrome shows a placeholder until it arrives), and
+// the embedded copy carries no Last-Modified to revalidate against.
+const faviconCacheControl = "public, max-age=86400"
+
 // faviconHandler serves favicon.ico from path.
 func faviconHandler(path string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -172,8 +180,16 @@ func faviconHandler(path string) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", faviconCacheControl)
 		http.ServeContent(w, r, "favicon.ico", stat.ModTime(), f)
 	}
+}
+
+// embeddedFaviconHandler serves the default favicon embedded in the binary.
+func embeddedFaviconHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/x-icon")
+	w.Header().Set("Cache-Control", faviconCacheControl)
+	http.ServeFileFS(w, r, static.Files, "favicon.ico")
 }
 
 // corsMiddleware sets CORS headers for requests from registered extension
