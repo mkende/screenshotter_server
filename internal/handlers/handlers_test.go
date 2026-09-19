@@ -511,6 +511,69 @@ func TestView_RealTemplate_EditorOnlyForOwner(t *testing.T) {
 	}
 }
 
+// TestView_RealTemplate_ToolbarCookie checks that the annotation toolbar
+// starts hidden, and the navbar's Annotate button shown, only when the owner's
+// cookie says so; a visitor gets neither.
+func TestView_RealTemplate_ToolbarCookie(t *testing.T) {
+	h, database, stor := newHandlers(t)
+	tmpls, err := tmpl.Parse()
+	if err != nil {
+		t.Fatalf("tmpl.Parse: %v", err)
+	}
+	h.tmpls = tmpls
+	setupImageForUser(t, database, stor, "img-view4", "owner@example.com")
+
+	render := func(email string, cookie *http.Cookie) string {
+		req := httptest.NewRequest(http.MethodGet, "/img-view4", nil)
+		req = chiRequest(req, map[string]string{"id": "img-view4"})
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		var rr *httptest.ResponseRecorder
+		if email == "" {
+			rr = executeAnonymous(h.View, req)
+		} else {
+			rr = executeAs(t, h.View, req, email)
+		}
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+		}
+		return rr.Body.String()
+	}
+	hidden := &http.Cookie{Name: "annotate_toolbar", Value: "hidden"}
+	shown := &http.Cookie{Name: "annotate_toolbar", Value: "shown"}
+
+	const toolbarShown = `<div id="toolbar">`
+	const toolbarHidden = `<div id="toolbar" hidden>`
+	const annotateShown = `<button id="btn-annotate" class="button is-warning is-light is-small">`
+	const annotateHidden = `<button id="btn-annotate" class="button is-warning is-light is-small" hidden>`
+
+	cases := []struct {
+		name    string
+		cookie  *http.Cookie
+		toolbar string
+		button  string
+	}{
+		{"no cookie", nil, toolbarShown, annotateHidden},
+		{"shown", shown, toolbarShown, annotateHidden},
+		{"hidden", hidden, toolbarHidden, annotateShown},
+	}
+	for _, tc := range cases {
+		body := render("owner@example.com", tc.cookie)
+		if !strings.Contains(body, tc.toolbar) {
+			t.Errorf("%s: owner page lacks %s", tc.name, tc.toolbar)
+		}
+		if !strings.Contains(body, tc.button) {
+			t.Errorf("%s: owner page lacks %s", tc.name, tc.button)
+		}
+	}
+
+	visitor := render("", hidden)
+	if strings.Contains(visitor, `id="btn-annotate"`) || strings.Contains(visitor, `id="toolbar"`) {
+		t.Error("visitor page has the annotation controls")
+	}
+}
+
 // ---- ServeImage metadata header tests --------------------------------------
 
 func TestServeImage_SetsMetadataHeaders(t *testing.T) {

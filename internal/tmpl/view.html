@@ -83,6 +83,9 @@
   #actions { gap: 0.75rem; }
   #action-buttons { margin-bottom: 0; }
   #actions-menu-items .dropdown-item .icon { margin-right: 0.25em; }
+  /* Shown only while the annotation toolbar is hidden; Bulma's display rules
+     (as a button or as a dropdown item) would otherwise win over hidden. */
+  #btn-annotate[hidden] { display: none; }
 
   /* Bulma switches the navbar to the burger layout below 1024px. The script
      adds is-desktop to keep the desktop layout below that, and removes it
@@ -154,9 +157,10 @@
     max-height: none;
     cursor: zoom-out;
   }
-  /* The owner gets the Fabric canvas at 1:1, sized to at least the area so
-     annotations can be drawn around the image. The shadow sits under the
-     transparent canvas, at the image's position, so it is never saved. */
+  /* The owner gets the Fabric canvas at 1:1, sized to the area (or to the
+     image when larger) so annotations can be drawn around the image. The
+     shadow sits under the transparent canvas, at the image's position, so it
+     is never saved. */
   #canvas-wrap { position: relative; margin: auto; }
   #image-shadow {
     position: absolute;
@@ -176,6 +180,8 @@
     flex-shrink: 0;
     flex-wrap: wrap;
   }
+  /* Its display rule would otherwise win over the hidden attribute. */
+  #toolbar[hidden] { display: none; }
   .tool-btn {
     width: 40px; height: 40px;
     border: 1px solid transparent;
@@ -219,10 +225,16 @@
   .stroke-btn.is-active { background: #dbedff; border-color: #3273dc; }
   .stroke-line { background: #333; border-radius: 2px; width: 24px; }
 
-  /* Save status, right-aligned: changes are uploaded shortly after they are
-     made, so this is the only feedback about them. */
-  #save-status {
+  /* Right-aligned: the save status and the button hiding the toolbar. */
+  #toolbar-end {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  /* Changes are uploaded shortly after they are made, so this is the only
+     feedback about them. */
+  #save-status {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -296,6 +308,11 @@
       <span>Download</span>
     </a>
     {{if .IsOwner}}
+    {{/* Brings back the annotation toolbar; shown only while it is hidden. */}}
+    <button id="btn-annotate" class="button is-warning is-light is-small"{{if not .ToolbarHidden}} hidden{{end}}>
+      <span class="icon is-small"><i class="fa fa-pen-ruler"></i></span>
+      <span>Annotate</span>
+    </button>
     <button id="btn-delete" class="button is-danger is-light is-small" data-image-id="{{.Image.ID}}">
       <span class="icon is-small"><i class="fa fa-trash"></i></span>
       <span>Delete</span>
@@ -327,8 +344,10 @@
 <main id="image-main">
 {{if .IsOwner}}
 {{/* Annotation toolbar. Every change is uploaded on its own; undo and redo
-     re-upload the earlier state, so there is nothing to save or cancel. */}}
-<div id="toolbar">
+     re-upload the earlier state, so there is nothing to save or cancel. It
+     can be hidden, which leaves a plain view of the image; the choice is
+     kept in a cookie. */}}
+<div id="toolbar"{{if .ToolbarHidden}} hidden{{end}}>
   <!-- Tools -->
   <button class="tool-btn is-active" data-tool="select" title="Select (V)">
     <i class="fa fa-arrow-pointer"></i>
@@ -382,10 +401,15 @@
     <i class="fa fa-trash" style="font-size:14px"></i>
   </button>
 
-  <div id="save-status" hidden>
-    <span class="icon is-small"><i id="save-status-icon" class="fa"></i></span>
-    <span id="save-status-text"></span>
-    <button id="save-retry" class="button is-danger is-light is-small" hidden>Retry</button>
+  <div id="toolbar-end">
+    <div id="save-status" hidden>
+      <span class="icon is-small"><i id="save-status-icon" class="fa"></i></span>
+      <span id="save-status-text"></span>
+      <button id="save-retry" class="button is-danger is-light is-small" hidden>Retry</button>
+    </div>
+    <button id="btn-hide-toolbar" class="tool-btn" title="Hide the toolbar (the Annotate button brings it back)">
+      <i class="fa fa-chevron-up"></i>
+    </button>
   </div>
 </div>
 {{end}}
@@ -403,6 +427,18 @@
 </main>
 
 <script nonce="{{.Nonce}}">
+// Preference cookies (the annotation color, stroke and toolbar visibility);
+// the last one is also read by the server to render the page in that state.
+function getCookie(name) {
+  var match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function setCookie(name, value) {
+  var expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+  document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Lax';
+}
+
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
     const icon = btn.querySelector('i');
@@ -488,6 +524,23 @@ function saveEdit(e) {
     btnDelete.addEventListener('click', function () {
       deleteImage(btnDelete.dataset.imageId);
     });
+  }
+
+  // Owner: hiding the annotation toolbar leaves a plain view of the image,
+  // with an Annotate button in the navbar to bring the toolbar back. The
+  // server renders the initial state from the cookie set here.
+  var toolbar = document.getElementById('toolbar');
+  var btnAnnotate = document.getElementById('btn-annotate');
+  if (toolbar) {
+    var setToolbarShown = function (shown) {
+      toolbar.hidden = !shown;
+      btnAnnotate.hidden = shown;
+      setCookie('annotate_toolbar', shown ? 'shown' : 'hidden');
+      layoutActions();
+      window.annotationEditor.setEditing(shown);
+    };
+    btnAnnotate.addEventListener('click', function () { setToolbarShown(true); });
+    document.getElementById('btn-hide-toolbar').addEventListener('click', function () { setToolbarShown(false); });
   }
 
   var btnAdminDelete = document.getElementById('btn-admin-delete');
@@ -611,18 +664,8 @@ function saveEdit(e) {
   // screens have proportionally larger features.
   const MIN_SHAPE_PX = 3 * (window.devicePixelRatio || 1);
 
-  // ── Cookie helpers ────────────────────────────────────
-  function getCookie(name) {
-    var match = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
-    return match ? decodeURIComponent(match[1]) : null;
-  }
-
-  function setCookie(name, value) {
-    var expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
-    document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/; SameSite=Lax';
-  }
-
   // ── State ────────────────────────────────────────────
+  let editing = true;    // false while the toolbar is hidden: the canvas is inert
   let currentTool = 'select';
   let currentColor = '#ef4444';
   let currentStroke = 4;
@@ -645,32 +688,49 @@ function saveEdit(e) {
     selection: true,
   });
 
+  // The image sits at the scene origin, where annotations are placed too, so
+  // that their coordinates (and the history snapshots) stay valid whatever
+  // the layout. The canvas fills the image area (or takes the image's size
+  // when it is larger) and the viewport is translated so the image stays
+  // centered when the area is resized.
   function initCanvas(img) {
-    var area = document.getElementById('image-area');
-    var canvasW = Math.max(area.clientWidth, img.width);
-    var canvasH = Math.max(area.clientHeight, img.height);
     img.set({
-      left: Math.floor((canvasW - img.width) / 2),
-      top: Math.floor((canvasH - img.height) / 2),
+      left: 0, top: 0,
       selectable: false, evented: false,
       hasControls: false,
       lockMovementX: true, lockMovementY: true,
       isBackground: true,
     });
-    canvas.setWidth(canvasW);
-    canvas.setHeight(canvasH);
     canvas.add(img);
-    canvas.renderAll();
     background = img;
     var shadow = document.getElementById('image-shadow');
-    shadow.style.left = img.left + 'px';
-    shadow.style.top = img.top + 'px';
     shadow.style.width = img.width + 'px';
     shadow.style.height = img.height + 'px';
+    layoutCanvas();
+    new ResizeObserver(layoutCanvas).observe(document.getElementById('image-area'));
     history.push(snapshot());
     historyIndex = 0;
     savedRev = history[0].rev;
     updateHistoryButtons();
+  }
+
+  function layoutCanvas() {
+    var area = document.getElementById('image-area');
+    var width = Math.max(area.clientWidth, background.width);
+    var height = Math.max(area.clientHeight, background.height);
+    var dx = Math.floor((width - background.width) / 2);
+    var dy = Math.floor((height - background.height) / 2);
+    canvas.setDimensions({ width: width, height: height });
+    canvas.setViewportTransform([1, 0, 0, 1, dx, dy]);
+    var shadow = document.getElementById('image-shadow');
+    shadow.style.left = dx + 'px';
+    shadow.style.top = dy + 'px';
+  }
+
+  // Returns the part of the scene shown by the canvas, in scene coordinates.
+  function visibleSceneRect() {
+    var vpt = canvas.viewportTransform;
+    return { left: -vpt[4], top: -vpt[5], width: canvas.getWidth(), height: canvas.getHeight() };
   }
 
   // Load font then image
@@ -771,6 +831,20 @@ function saveEdit(e) {
   }
 
   // ── Tool management ──────────────────────────────────
+  // Without the toolbar the page is a plain view of the image: nothing can
+  // be selected or drawn, and the shortcuts are off. Uploads still complete.
+  function setEditing(enabled) {
+    editing = enabled;
+    canvas.discardActiveObject();
+    canvas.skipTargetFind = !enabled;
+    setTool('select');
+    if (!enabled) {
+      canvas.selection = false;
+      canvas.hoverCursor = 'default';
+    }
+    canvas.requestRenderAll();
+  }
+
   function setTool(tool) {
     if (currentTool === 'select' && tool !== 'select') {
       restoreToolbarIfNeeded();
@@ -832,6 +906,7 @@ function saveEdit(e) {
   document.getElementById('redo-btn').addEventListener('click', redo);
   document.getElementById('delete-btn').addEventListener('click', deleteSelected);
   document.getElementById('save-retry').addEventListener('click', flush);
+  if (document.getElementById('toolbar').hidden) setEditing(false);
 
   // ── Restore preferences from cookies ─────────────────
   // The tool is deliberately not remembered: the page always opens in select
@@ -954,8 +1029,13 @@ function saveEdit(e) {
     // Restricts hit-testing to the shaft (with a small margin) and the arrowhead
     // triangle, so clicks inside the arrow's bounding box but off the visible
     // geometry fall through to objects underneath.
-    containsPoint: function (point) {
+    // Fabric passes the point in viewport coordinates unless absolute is set;
+    // the endpoints are scene coordinates.
+    containsPoint: function (point, lines, absolute) {
       this._syncTranslation();
+      if (!absolute && this.canvas) {
+        point = fabric.util.transformPoint(point, fabric.util.invertTransform(this.canvas.viewportTransform));
+      }
       var g = this._arrowGeom();
       var margin = Math.max(this.strokeWidth / 2 + 3, 6);
       if (pointToSegmentDistance(point.x, point.y, this.x1, this.y1, g.lx2, g.ly2) <= margin) {
@@ -1260,8 +1340,9 @@ function saveEdit(e) {
   });
 
   // ── Rendering a snapshot ──────────────────────────────
-  // Returns the union bounding rect of the objects of a canvas, clamped to
-  // its bounds.
+  // Returns the union bounding rect of the objects of a canvas, in scene
+  // coordinates, clamped to the part of the scene the live canvas shows
+  // (an annotation dragged out of view is cropped).
   function getContentBoundingBox(c) {
     var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     c.forEachObject(function (obj) {
@@ -1271,10 +1352,11 @@ function saveEdit(e) {
       maxX = Math.max(maxX, r.left + r.width);
       maxY = Math.max(maxY, r.top + r.height);
     });
-    minX = Math.max(0, Math.floor(minX));
-    minY = Math.max(0, Math.floor(minY));
-    maxX = Math.min(c.getWidth(), Math.ceil(maxX));
-    maxY = Math.min(c.getHeight(), Math.ceil(maxY));
+    var visible = visibleSceneRect();
+    minX = Math.max(visible.left, Math.floor(minX));
+    minY = Math.max(visible.top, Math.floor(minY));
+    maxX = Math.min(visible.left + visible.width, Math.ceil(maxX));
+    maxY = Math.min(visible.top + visible.height, Math.ceil(maxY));
     return { left: minX, top: minY, width: maxX - minX, height: maxY - minY };
   }
 
@@ -1283,17 +1365,12 @@ function saveEdit(e) {
   // (selection handles, an object being drawn) is left alone.
   function renderSnapshot(snap) {
     return new Promise(function (resolve, reject) {
-      var off = new fabric.StaticCanvas(null, { width: canvas.getWidth(), height: canvas.getHeight() });
+      var off = new fabric.StaticCanvas(null);
       off.add(new fabric.Image(background.getElement(), { left: background.left, top: background.top }));
       fabric.util.enlivenObjects(snap.objects, function (objs) {
         objs.forEach(function (o) { off.add(o); });
-        var bb = getContentBoundingBox(off);
-        var full = off.toCanvasElement();
+        var crop = off.toCanvasElement(1, getContentBoundingBox(off));
         off.dispose();
-        var crop = document.createElement('canvas');
-        crop.width = bb.width;
-        crop.height = bb.height;
-        crop.getContext('2d').drawImage(full, bb.left, bb.top, bb.width, bb.height, 0, 0, bb.width, bb.height);
         crop.toBlob(function (blob) {
           if (blob) resolve(blob);
           else reject(new Error('could not render the image'));
@@ -1417,10 +1494,13 @@ function saveEdit(e) {
       saveTimer = null;
       leaving = true;
     },
+    // Makes the canvas editable (the toolbar is shown) or inert (hidden).
+    setEditing: setEditing,
   };
 
   // ── Keyboard shortcuts ────────────────────────────────
   document.addEventListener('keydown', function (e) {
+    if (!editing) return;
     var tag = document.activeElement && document.activeElement.tagName;
     // Don't intercept keys while typing in a Fabric IText or in the title form
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
