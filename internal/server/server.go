@@ -3,9 +3,11 @@ package server
 
 import (
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -76,8 +78,9 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 		r.Get("/favicon.ico", embeddedFaviconHandler)
 	}
 
-	// Static assets (CSS, JS, webfonts) — embedded in the binary, no auth required.
-	r.Handle("/assets/*", http.StripPrefix("/assets", http.FileServerFS(static.Files)))
+	// Static assets (CSS, JS, webfonts, icons) — embedded in the binary, no
+	// auth required.
+	r.Handle("/assets/*", http.StripPrefix("/assets", cacheAssets(http.FileServerFS(static.Files))))
 
 	// OIDC routes: present only when OIDC is enabled. The middleware stack
 	// (DomainRedirect, SecurityHeaders, CORS, auth providers) still runs so
@@ -160,10 +163,39 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	return r
 }
 
-// faviconCacheControl lets browsers keep the favicon for a day: they fetch
-// it on every page load (Chrome shows a placeholder until it arrives), and
-// the embedded copy carries no Last-Modified to revalidate against.
-const faviconCacheControl = "public, max-age=86400"
+// Cache-Control values for the embedded files, which carry no Last-Modified
+// browsers could revalidate against (so, without these, they would be fetched
+// again on every page). Files whose name carries their version are new URLs
+// when they change, so browsers may keep them for good; the others (the
+// icons, the favicon) are kept for a day. The favicon in particular is
+// fetched on every page load, with Chrome showing a placeholder until it
+// arrives.
+const (
+	immutableCacheControl = "public, max-age=31536000, immutable"
+	dayCacheControl       = "public, max-age=86400"
+	faviconCacheControl   = dayCacheControl
+)
+
+// versionedAsset matches the path (relative to /assets/) of a file whose
+// name, or whose directory's name, ends with a version number: bulma-1.0.2.min.css,
+// webfonts-6.5.0/fa-solid-900.woff2.
+var versionedAsset = regexp.MustCompile(`^[^/]*-[0-9]+\.[0-9]+\.[0-9]+[./]`)
+
+// cacheAssets adds the Cache-Control header to the files that next serves
+// from the embedded assets. Missing files get none, so a 404 is not cached.
+func cacheAssets(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if info, err := fs.Stat(static.Files, name); err == nil && !info.IsDir() {
+			cc := dayCacheControl
+			if versionedAsset.MatchString(name) {
+				cc = immutableCacheControl
+			}
+			w.Header().Set("Cache-Control", cc)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // faviconHandler serves favicon.ico from path.
 func faviconHandler(path string) http.HandlerFunc {

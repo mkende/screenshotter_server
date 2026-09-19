@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mkende/screenshotter_server/internal/static"
 )
 
 // icoMagic starts every ICO file (reserved 0, type 1 = icon).
@@ -51,5 +53,32 @@ func TestFaviconHandler_ServesConfiguredFile(t *testing.T) {
 	faviconHandler(filepath.Join(t.TempDir(), "missing.ico"))(rr, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404 for a missing file, got %d", rr.Code)
+	}
+}
+
+func TestCacheAssets_HeadersByAssetKind(t *testing.T) {
+	h := cacheAssets(http.FileServerFS(static.Files))
+	cases := []struct {
+		path   string
+		status int
+		cache  string
+	}{
+		{"/bulma-1.0.2.min.css", http.StatusOK, immutableCacheControl},
+		{"/webfonts-6.5.0/fa-solid-900.woff2", http.StatusOK, immutableCacheControl},
+		{"/icon-64.png", http.StatusOK, dayCacheControl},
+		{"/favicon.ico", http.StatusOK, dayCacheControl},
+		{"/missing-1.0.0.css", http.StatusNotFound, ""},
+		// The file server lists directories; a listing is not cached.
+		{"/webfonts-6.5.0/", http.StatusOK, ""},
+	}
+	for _, tc := range cases {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if rr.Code != tc.status {
+			t.Errorf("%s: expected %d, got %d", tc.path, tc.status, rr.Code)
+		}
+		if cc := rr.Header().Get("Cache-Control"); cc != tc.cache {
+			t.Errorf("%s: expected Cache-Control %q, got %q", tc.path, tc.cache, cc)
+		}
 	}
 }
