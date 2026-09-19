@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -622,6 +623,61 @@ func TestServeImage_OmitsHeadersWhenMetadataAbsent(t *testing.T) {
 	}
 	if _, ok := rr.Header()["X-Screenshot-Source-Url"]; ok {
 		t.Error("X-Screenshot-Source-Url should be absent when no source URL is set")
+	}
+}
+
+// TestServeImage_Revalidation checks that a client holding the current file
+// gets a 304 from its ETag, and the new file once it is replaced — even within
+// the same second, which Last-Modified alone cannot tell apart.
+func TestServeImage_Revalidation(t *testing.T) {
+	h, database, stor := newHandlers(t)
+	setupImageForUser(t, database, stor, "img-etag", "owner@example.com")
+
+	get := func(ifNoneMatch string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/img-etag.png", nil)
+		req = chiRequest(req, map[string]string{"id": "img-etag"})
+		if ifNoneMatch != "" {
+			req.Header.Set("If-None-Match", ifNoneMatch)
+		}
+		return executeAnonymous(h.ServeImage, req)
+	}
+
+	rr := get("")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "private, no-cache" {
+		t.Errorf("Cache-Control = %q, want %q", got, "private, no-cache")
+	}
+	etag := rr.Header().Get("ETag")
+	if etag == "" || rr.Header().Get("Last-Modified") == "" {
+		t.Fatalf("expected ETag and Last-Modified, got %v", rr.Header())
+	}
+
+	rr = get(etag)
+	if rr.Code != http.StatusNotModified || rr.Body.Len() != 0 {
+		t.Errorf("expected an empty 304 for the current ETag, got %d with %d bytes", rr.Code, rr.Body.Len())
+	}
+
+	// Replace the file with one of a different size, keeping its mtime so
+	// that only the size distinguishes the versions.
+	path := stor.ImagePath("img-etag")
+	stat, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stor.Save("img-etag", bytes.NewReader(makePNG(t, 30, 30))); err != nil {
+		t.Fatalf("stor.Save: %v", err)
+	}
+	if err := os.Chtimes(path, stat.ModTime(), stat.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	rr = get(etag)
+	if rr.Code != http.StatusOK || rr.Body.Len() == 0 {
+		t.Errorf("expected the replaced file for a stale ETag, got %d with %d bytes", rr.Code, rr.Body.Len())
+	}
+	if rr.Header().Get("ETag") == etag {
+		t.Error("the replaced file has the same ETag")
 	}
 }
 

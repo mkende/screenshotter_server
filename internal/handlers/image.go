@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -86,6 +87,11 @@ func (h *Handlers) serveFilePath(w http.ResponseWriter, r *http.Request, id, pat
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
+	// Browsers keep the file but revalidate on every use, and ServeContent
+	// answers 304 to an unchanged one. The ETag tells apart versions saved
+	// within the same second (annotations replace the file), which the
+	// second-granularity Last-Modified alone would not.
 	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("ETag", fmt.Sprintf("\"%x-%x\"", stat.Size(), stat.ModTime().UnixNano()))
 	http.ServeContent(w, r, id+".png", stat.ModTime(), f)
 }
