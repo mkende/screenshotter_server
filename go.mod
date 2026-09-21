@@ -1,20 +1,20 @@
 module github.com/mkende/screenshotter_server
 
-go 1.25.0
+go 1.26.0
 
-toolchain go1.27.0
+toolchain go1.27.1
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/coreos/go-oidc/v3 v3.20.0
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/fergusstrange/embedded-postgres v1.34.0
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/lib/pq v1.12.3
-	github.com/mattn/go-sqlite3 v1.14.50
-	golang.org/x/image v0.45.0
-	golang.org/x/oauth2 v0.36.0
+	github.com/mattn/go-sqlite3 v1.14.52
+	golang.org/x/image v0.46.0
+	golang.org/x/oauth2 v0.37.0
 )
 
 require (
