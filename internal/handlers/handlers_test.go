@@ -227,6 +227,42 @@ func TestUpload_ValidPNG_Returns200WithRedirectURL(t *testing.T) {
 	}
 }
 
+// The extension sends fields this server may not know yet (pixel_ratio, the
+// scale of the uploaded image relative to the CSS pixels of the captured
+// page). Unknown form fields must stay ignorable so a newer extension keeps
+// working against an older server; see docs/protocol.md.
+func TestUpload_UnknownFormFields_AreIgnored(t *testing.T) {
+	h, _, _ := newHandlers(t)
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("image", "screenshot.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := fw.Write(makePNG(t, 100, 100)); err != nil {
+		t.Fatalf("write image data: %v", err)
+	}
+	if err := mw.WriteField("source_url", "https://example.com/page"); err != nil {
+		t.Fatalf("write source_url: %v", err)
+	}
+	if err := mw.WriteField("pixel_ratio", "2"); err != nil {
+		t.Fatalf("write pixel_ratio: %v", err)
+	}
+	if err := mw.WriteField("some_future_field", "whatever"); err != nil {
+		t.Fatalf("write some_future_field: %v", err)
+	}
+	mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := executeAs(t, h.Upload, req, "alice@example.com")
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestUpload_NoIdentity_Returns401(t *testing.T) {
 	h, _, _ := newHandlers(t)
 	req := buildUploadRequest(t, makePNG(t, 10, 10), "")
