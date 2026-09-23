@@ -11,7 +11,7 @@ The server is the backend component of Screenshotter. The Chrome extension
 captures and crops screenshots in the browser, then uploads them here.
 
 A pre-built Docker image is published at
-[ghcr.io/mkende/screenshotter](https://github.com/users/mkende/packages/container/package/screenshotter).
+[ghcr.io/screenshotter-org/screenshotter](https://github.com/orgs/screenshotter-org/packages/container/package/screenshotter).
 
 Full documentation — deployment, every configuration option, and the Chrome
 extension — is at
@@ -34,7 +34,7 @@ docker compose up -d
 ```yaml
 services:
   screenshotter:
-    image: ghcr.io/mkende/screenshotter:latest
+    image: ghcr.io/screenshotter-org/screenshotter:latest
     restart: unless-stopped
     volumes:
       - ./config.toml:/etc/screenshotter/config.toml:ro
