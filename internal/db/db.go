@@ -208,14 +208,28 @@ type Image struct {
 	Title     *string // nil means no title has been set by the user
 	SourceURL *string // nil means no URL has been set (e.g. direct upload)
 	FilePath  string
-	CreatedAt time.Time
+	// PixelRatio is how many pixels of the stored image cover one CSS pixel of
+	// the page it was captured from — 2 for a Retina capture kept at its full
+	// resolution. The view page divides the image's dimensions by it to show
+	// the image at the size it appeared on screen. 1 means the two are the
+	// same, which is what every row predating the column reports.
+	PixelRatio float64
+	CreatedAt  time.Time
 }
 
 // InsertImage stores a new image record. Returns ErrDuplicateID on PK collision.
+//
+// A PixelRatio that was never set is stored as 1: the zero value would say the
+// image has no size of its own, and every caller that does not care about the
+// scale means "the image is the size it appeared".
 func (d *DB) InsertImage(ctx context.Context, img Image) error {
+	if img.PixelRatio <= 0 {
+		img.PixelRatio = 1
+	}
 	_, err := d.sql.ExecContext(ctx,
-		d.q(`INSERT INTO images (id, owner_id, source_url, file_path) VALUES (?, ?, ?, ?)`),
-		img.ID, img.OwnerID, img.SourceURL, img.FilePath)
+		d.q(`INSERT INTO images (id, owner_id, source_url, file_path, pixel_ratio)
+		     VALUES (?, ?, ?, ?, ?)`),
+		img.ID, img.OwnerID, img.SourceURL, img.FilePath, img.PixelRatio)
 	if err != nil {
 		if isDuplicateKeyErr(err) {
 			return ErrDuplicateID
@@ -229,8 +243,10 @@ func (d *DB) InsertImage(ctx context.Context, img Image) error {
 func (d *DB) GetImage(ctx context.Context, id string) (*Image, error) {
 	img := &Image{}
 	err := d.sql.QueryRowContext(ctx,
-		d.q(`SELECT id, owner_id, title, source_url, file_path, created_at FROM images WHERE id = ?`), id).
-		Scan(&img.ID, &img.OwnerID, &img.Title, &img.SourceURL, &img.FilePath, &img.CreatedAt)
+		d.q(`SELECT id, owner_id, title, source_url, file_path, pixel_ratio, created_at
+		     FROM images WHERE id = ?`), id).
+		Scan(&img.ID, &img.OwnerID, &img.Title, &img.SourceURL, &img.FilePath,
+			&img.PixelRatio, &img.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -401,7 +417,7 @@ func (d *DB) DeleteUser(ctx context.Context, email string) (bool, error) {
 // offset, ordered newest first. Pass limit+1 and check len to detect a next page.
 func (d *DB) ListRecentImages(ctx context.Context, ownerID string, limit, offset int) ([]Image, error) {
 	rows, err := d.sql.QueryContext(ctx,
-		d.q(`SELECT id, owner_id, title, source_url, file_path, created_at
+		d.q(`SELECT id, owner_id, title, source_url, file_path, pixel_ratio, created_at
 		     FROM images WHERE owner_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`),
 		ownerID, limit, offset)
 	if err != nil {
@@ -411,7 +427,8 @@ func (d *DB) ListRecentImages(ctx context.Context, ownerID string, limit, offset
 	var imgs []Image
 	for rows.Next() {
 		var img Image
-		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Title, &img.SourceURL, &img.FilePath, &img.CreatedAt); err != nil {
+		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Title, &img.SourceURL, &img.FilePath,
+			&img.PixelRatio, &img.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan image row: %w", err)
 		}
 		imgs = append(imgs, img)

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"math/big"
 	"net/http"
+	"strconv"
 
 	"github.com/mkende/screenshotter_server/internal/auth"
 	"github.com/mkende/screenshotter_server/internal/db"
@@ -17,6 +19,14 @@ import (
 const (
 	idChars      = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	maxIDRetries = 3 // maximum attempts to find a collision-free ID
+
+	// Bounds on the uploaded pixel_ratio, matching the extension's own. A
+	// display packs a handful of pixels into a CSS pixel at most, so anything
+	// outside this is a bad measurement or a malformed request, and is taken
+	// as 1 — the image displays at its own size, as it did before the field
+	// existed.
+	minPixelRatio = 1.0 / 8
+	maxPixelRatio = 8
 )
 
 // Upload handles POST /upload: saves the PNG, records it in the DB, and
@@ -64,6 +74,8 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pixelRatio := parsePixelRatio(r.FormValue("pixel_ratio"))
+
 	// source_url is auto-populated by the extension from the captured tab's URL.
 	// A disallowed scheme is dropped rather than failing the upload, since the
 	// user did not type it and the screenshot itself is still valid.
@@ -92,10 +104,11 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = h.db.InsertImage(r.Context(), db.Image{
-			ID:        id,
-			OwnerID:   identity.Email,
-			SourceURL: sourceURL,
-			FilePath:  id + ".png",
+			ID:         id,
+			OwnerID:    identity.Email,
+			SourceURL:  sourceURL,
+			FilePath:   id + ".png",
+			PixelRatio: pixelRatio,
 		})
 		if err == nil {
 			inserted = true
@@ -131,6 +144,24 @@ func (h *Handlers) Upload(w http.ResponseWriter, r *http.Request) {
 
 	redirectURL := h.cfg.CanonicalAddress + "/" + id
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"redirect_url": redirectURL})
+}
+
+// parsePixelRatio reads the uploaded pixel_ratio: how many pixels of the image
+// cover one CSS pixel of the page it was captured from. Anything missing,
+// unparseable or out of range is taken as 1 rather than failing the upload —
+// an older extension does not send the field at all, and a screenshot is worth
+// keeping even when its scale cannot be trusted. It is only ever used to
+// divide the image's own dimensions for display.
+func parsePixelRatio(raw string) float64 {
+	if raw == "" {
+		return 1
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(v) || v < minPixelRatio || v > maxPixelRatio {
+		slog.Debug("ignoring out-of-range pixel_ratio on upload", "value", raw)
+		return 1
+	}
+	return v
 }
 
 // generateID returns a cryptographically random alphanumeric string of length n.

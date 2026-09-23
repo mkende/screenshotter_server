@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"testing"
 
@@ -227,10 +228,9 @@ func TestUpload_ValidPNG_Returns200WithRedirectURL(t *testing.T) {
 	}
 }
 
-// The extension sends fields this server may not know yet (pixel_ratio, the
-// scale of the uploaded image relative to the CSS pixels of the captured
-// page). Unknown form fields must stay ignorable so a newer extension keeps
-// working against an older server; see docs/protocol.md.
+// The extension may send fields this server does not know yet. Unknown form
+// fields must stay ignorable so a newer extension keeps working against an
+// older server; see docs/protocol.md.
 func TestUpload_UnknownFormFields_AreIgnored(t *testing.T) {
 	h, _, _ := newHandlers(t)
 
@@ -246,9 +246,6 @@ func TestUpload_UnknownFormFields_AreIgnored(t *testing.T) {
 	if err := mw.WriteField("source_url", "https://example.com/page"); err != nil {
 		t.Fatalf("write source_url: %v", err)
 	}
-	if err := mw.WriteField("pixel_ratio", "2"); err != nil {
-		t.Fatalf("write pixel_ratio: %v", err)
-	}
 	if err := mw.WriteField("some_future_field", "whatever"); err != nil {
 		t.Fatalf("write some_future_field: %v", err)
 	}
@@ -260,6 +257,110 @@ func TestUpload_UnknownFormFields_AreIgnored(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// buildUploadWithRatio builds an upload request carrying a pixel_ratio field.
+// An empty ratio omits the field, as an extension predating it would.
+func buildUploadWithRatio(t *testing.T, ratio string) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("image", "screenshot.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := fw.Write(makePNG(t, 100, 100)); err != nil {
+		t.Fatalf("write image data: %v", err)
+	}
+	if ratio != "" {
+		if err := mw.WriteField("pixel_ratio", ratio); err != nil {
+			t.Fatalf("write pixel_ratio: %v", err)
+		}
+	}
+	mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return req
+}
+
+// The uploaded scale reaches the database, where the view page reads it to
+// show the image at the size it appeared on screen.
+func TestUpload_PixelRatio_IsStored(t *testing.T) {
+	cases := []struct {
+		name  string
+		field string
+		want  float64
+	}{
+		{"a HiDPI capture kept at full resolution", "2", 2},
+		{"a fractional display scale", "1.5", 1.5},
+		{"a capture already scaled to its on-screen size", "1", 1},
+		{"a scale below 1, which only this field can express", "0.5", 0.5},
+		// None of these should cost the user a screenshot.
+		{"omitted, as an older extension would", "", 1},
+		{"not a number", "banana", 1},
+		{"empty", "", 1},
+		{"absurdly large", "5000", 1},
+		{"zero", "0", 1},
+		{"negative", "-2", 1},
+		{"NaN", "NaN", 1},
+		{"infinite", "Inf", 1},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h, database, _ := newHandlers(t)
+			req := buildUploadWithRatio(t, c.field)
+			rr := executeAs(t, h.Upload, req, "alice@example.com")
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+			}
+
+			var resp map[string]string
+			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			id := path.Base(resp["redirect_url"])
+
+			img, err := database.GetImage(context.Background(), id)
+			if err != nil {
+				t.Fatalf("GetImage: %v", err)
+			}
+			if img == nil {
+				t.Fatalf("image %q not found", id)
+			}
+			if img.PixelRatio != c.want {
+				t.Errorf("PixelRatio: got %v, want %v", img.PixelRatio, c.want)
+			}
+		})
+	}
+}
+
+func TestParsePixelRatio(t *testing.T) {
+	cases := []struct {
+		in   string
+		want float64
+	}{
+		{"", 1},
+		{"1", 1},
+		{"2", 2},
+		{"1.25", 1.25},
+		{"0.125", 0.125}, // the smallest scale accepted
+		{"8", 8},         // the largest
+		{"0.1", 1},       // just outside
+		{"8.001", 1},     // just outside
+		{"-1", 1},
+		{"NaN", 1},
+		{"1e400", 1}, // parses as +Inf
+		{"  2  ", 1}, // ParseFloat rejects the padding rather than guessing
+		{"2,5", 1},
+		{"</script>", 1},
+	}
+	for _, c := range cases {
+		if got := parsePixelRatio(c.in); got != c.want {
+			t.Errorf("parsePixelRatio(%q) = %v, want %v", c.in, got, c.want)
+		}
 	}
 }
 

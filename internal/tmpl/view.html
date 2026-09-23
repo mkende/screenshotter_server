@@ -141,20 +141,23 @@
     display: flex;
     background: #eaeaea;
   }
-  /* Viewers get the image scaled down to fit; a click switches to 1:1 (and
-     back). margin: auto centers it without clipping when it overflows. */
+  /* Viewers get the image scaled down to fit; a click switches to the size it
+     had on screen (and back). --shot-w/--shot-h carry that size, set from the
+     image's own dimensions once it has loaded; the caps stay max-* so the
+     browser keeps the aspect ratio rather than us computing a height.
+     margin: auto centers it without clipping when it overflows. */
   #image-area.is-viewer { padding: 1rem; }
   #image-area.is-viewer img {
     flex: none;
-    max-width: 100%;
-    max-height: 100%;
+    max-width: min(100%, var(--shot-w, 100%));
+    max-height: min(100%, var(--shot-h, 100%));
     margin: auto;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
   }
   #image-area.is-viewer img.can-zoom { cursor: zoom-in; }
   #image-area.is-viewer.is-actual-size img {
-    max-width: none;
-    max-height: none;
+    max-width: var(--shot-w, none);
+    max-height: var(--shot-h, none);
     cursor: zoom-out;
   }
   /* The owner gets the Fabric canvas at 1:1, sized to the area (or to the
@@ -427,6 +430,15 @@
 </main>
 
 <script nonce="{{.Nonce}}">
+// How many pixels of this image cover one CSS pixel of the page it was
+// captured from: 2 for a Retina capture kept at its full resolution, 1 when
+// the extension already scaled it down (or for anything uploaded before the
+// field existed). Dividing by it shows the image at the size it appeared on
+// screen — which on a display of the same density is also where its pixels
+// land one-to-one, rather than being stretched over that many display pixels.
+const PIXEL_RATIO = Number('{{.Image.PixelRatio}}') || 1;
+const VIEW_SCALE = 1 / PIXEL_RATIO;
+
 // Preference cookies (the annotation color, stroke and toolbar visibility);
 // the last one is also read by the server to render the page in that state.
 function getCookie(name) {
@@ -557,18 +569,27 @@ function saveEdit(e) {
     });
   }
 
-  // Viewer: a click on a scaled-down image shows it at 1:1, keeping the
-  // clicked point under the cursor; the next click scales it down again.
+  // Viewer: a click on a scaled-down image shows it at the size it had on
+  // screen, keeping the clicked point under the cursor; the next click scales
+  // it down again.
   var area = document.getElementById('image-area');
   var screenshot = document.getElementById('screenshot');
   if (screenshot) {
+    var shownWidth = function () { return screenshot.naturalWidth * VIEW_SCALE; };
+    var shownHeight = function () { return screenshot.naturalHeight * VIEW_SCALE; };
+    var applyShownSize = function () {
+      screenshot.style.setProperty('--shot-w', shownWidth() + 'px');
+      screenshot.style.setProperty('--shot-h', shownHeight() + 'px');
+    };
     var updateZoomable = function () {
       var shown = screenshot.getBoundingClientRect();
-      var scaledDown = Math.round(shown.width) < screenshot.naturalWidth || Math.round(shown.height) < screenshot.naturalHeight;
+      var scaledDown = Math.round(shown.width) < Math.round(shownWidth()) ||
+                       Math.round(shown.height) < Math.round(shownHeight());
       screenshot.classList.toggle('can-zoom', area.classList.contains('is-actual-size') || scaledDown);
     };
-    screenshot.addEventListener('load', updateZoomable);
-    if (screenshot.complete) updateZoomable();
+    var onImageReady = function () { applyShownSize(); updateZoomable(); };
+    screenshot.addEventListener('load', onImageReady);
+    if (screenshot.complete) onImageReady();
     new ResizeObserver(updateZoomable).observe(area);
     screenshot.addEventListener('click', function (e) {
       if (!screenshot.classList.contains('can-zoom')) return;
@@ -659,10 +680,15 @@ function saveEdit(e) {
   // Delay between the last change and its upload, during which an undo
   // cancels the upload altogether.
   const SAVE_DELAY_MS = 1000;
-  // Shapes smaller than this (in canvas pixels) are accidental clicks and
-  // are dropped. Scaled by the pixel density: screenshots taken on such
-  // screens have proportionally larger features.
-  const MIN_SHAPE_PX = 3 * (window.devicePixelRatio || 1);
+  // Annotations live in the image's pixel space but are authored in the units
+  // the toolbar shows, so every size the user picks is multiplied by this to
+  // look the same on screen whatever the capture's density — and rasterises
+  // at the image's full resolution when the annotated copy is saved.
+  const ANNOT_SCALE = PIXEL_RATIO;
+  // Shapes smaller than this (in image pixels) are accidental clicks and are
+  // dropped. Three screen pixels' worth, whatever the capture's density; this
+  // used to guess that density from the viewer's own screen.
+  const MIN_SHAPE_PX = 3 * ANNOT_SCALE;
 
   // ── State ────────────────────────────────────────────
   let editing = true;    // false while the toolbar is hidden: the canvas is inert
@@ -690,9 +716,13 @@ function saveEdit(e) {
 
   // The image sits at the scene origin, where annotations are placed too, so
   // that their coordinates (and the history snapshots) stay valid whatever
-  // the layout. The canvas fills the image area (or takes the image's size
-  // when it is larger) and the viewport is translated so the image stays
-  // centered when the area is resized.
+  // the layout. The canvas fills the image area (or takes the image's shown
+  // size when it is larger) and the viewport is scaled by VIEW_SCALE and
+  // translated so the image stays centered when the area is resized.
+  //
+  // The scene stays in image pixels at every zoom, so what is saved never
+  // depends on how the image is displayed: renderSnapshot draws to its own
+  // canvas at scene scale.
   function initCanvas(img) {
     img.set({
       left: 0, top: 0,
@@ -704,8 +734,8 @@ function saveEdit(e) {
     canvas.add(img);
     background = img;
     var shadow = document.getElementById('image-shadow');
-    shadow.style.width = img.width + 'px';
-    shadow.style.height = img.height + 'px';
+    shadow.style.width = img.width * VIEW_SCALE + 'px';
+    shadow.style.height = img.height * VIEW_SCALE + 'px';
     layoutCanvas();
     new ResizeObserver(layoutCanvas).observe(document.getElementById('image-area'));
     history.push(snapshot());
@@ -716,21 +746,31 @@ function saveEdit(e) {
 
   function layoutCanvas() {
     var area = document.getElementById('image-area');
-    var width = Math.max(area.clientWidth, background.width);
-    var height = Math.max(area.clientHeight, background.height);
-    var dx = Math.floor((width - background.width) / 2);
-    var dy = Math.floor((height - background.height) / 2);
+    var shownW = background.width * VIEW_SCALE;
+    var shownH = background.height * VIEW_SCALE;
+    var width = Math.max(area.clientWidth, shownW);
+    var height = Math.max(area.clientHeight, shownH);
+    var dx = Math.floor((width - shownW) / 2);
+    var dy = Math.floor((height - shownH) / 2);
     canvas.setDimensions({ width: width, height: height });
-    canvas.setViewportTransform([1, 0, 0, 1, dx, dy]);
+    canvas.setViewportTransform([VIEW_SCALE, 0, 0, VIEW_SCALE, dx, dy]);
     var shadow = document.getElementById('image-shadow');
     shadow.style.left = dx + 'px';
     shadow.style.top = dy + 'px';
   }
 
   // Returns the part of the scene shown by the canvas, in scene coordinates.
+  // The viewport scales as well as translates, so the canvas covers more scene
+  // than it has pixels whenever the image is drawn smaller than its own size.
   function visibleSceneRect() {
     var vpt = canvas.viewportTransform;
-    return { left: -vpt[4], top: -vpt[5], width: canvas.getWidth(), height: canvas.getHeight() };
+    var zoom = vpt[0];
+    return {
+      left: -vpt[4] / zoom,
+      top: -vpt[5] / zoom,
+      width: canvas.getWidth() / zoom,
+      height: canvas.getHeight() / zoom,
+    };
   }
 
   // Load font then image
@@ -954,7 +994,7 @@ function saveEdit(e) {
     // Returns the points needed to render the arrow given current x1/y1/x2/y2 and strokeWidth.
     _arrowGeom: function () {
       var ang = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
-      var hs = Math.max(14, this.strokeWidth * 4);
+      var hs = Math.max(14 * ANNOT_SCALE, this.strokeWidth * 4);
       var bo = hs * Math.cos(Math.PI / 6);
       return {
         lx2: this.x2 - bo * Math.cos(ang),
@@ -1037,7 +1077,7 @@ function saveEdit(e) {
         point = fabric.util.transformPoint(point, fabric.util.invertTransform(this.canvas.viewportTransform));
       }
       var g = this._arrowGeom();
-      var margin = Math.max(this.strokeWidth / 2 + 3, 6);
+      var margin = Math.max(this.strokeWidth / 2 + 3 * ANNOT_SCALE, 6 * ANNOT_SCALE);
       if (pointToSegmentDistance(point.x, point.y, this.x1, this.y1, g.lx2, g.ly2) <= margin) {
         return true;
       }
@@ -1147,9 +1187,11 @@ function saveEdit(e) {
     return null;
   }
 
+  // Back from the object's image-pixel width to the toolbar value that made
+  // it, which showStrokeInToolbar matches against the buttons exactly.
   function getObjectStrokeWidth(obj) {
-    if (obj.type === 'arrow') return obj.strokeWidth;
-    if (obj.type === 'rect' && obj.fill === 'transparent') return obj.strokeWidth;
+    if (obj.type === 'arrow') return Math.round(obj.strokeWidth / ANNOT_SCALE);
+    if (obj.type === 'rect' && obj.fill === 'transparent') return Math.round(obj.strokeWidth / ANNOT_SCALE);
     return null;
   }
 
@@ -1164,15 +1206,16 @@ function saveEdit(e) {
     canvas.renderAll();
   }
 
+  // sw is the toolbar value; objects hold it in image pixels.
   function applyStrokeToObject(obj, sw) {
     if (obj.type === 'arrow') {
       obj._syncTranslation();
-      obj.set({ strokeWidth: sw });
+      obj.set({ strokeWidth: sw * ANNOT_SCALE });
       // Arrowhead size depends on strokeWidth, so the bounding box must be recomputed.
       obj._updateGeometry();
       canvas.renderAll();
     } else if (obj.type === 'rect' && obj.fill === 'transparent') {
-      obj.set({ strokeWidth: sw });
+      obj.set({ strokeWidth: sw * ANNOT_SCALE });
       canvas.renderAll();
     }
     return obj;
@@ -1214,7 +1257,7 @@ function saveEdit(e) {
       var placeholder = 'Text';
       var text = new fabric.IText(placeholder, {
         left: ptr.x, top: ptr.y,
-        fontSize: 20,
+        fontSize: 20 * ANNOT_SCALE,
         fontFamily: FONT_NAME,
         fill: currentColor,
         selectable: true, evented: true,
@@ -1244,7 +1287,7 @@ function saveEdit(e) {
       activeObj = new fabric.Rect({
         left: ptr.x, top: ptr.y, width: 1, height: 1,
         fill: 'transparent',
-        stroke: currentColor, strokeWidth: currentStroke,
+        stroke: currentColor, strokeWidth: currentStroke * ANNOT_SCALE,
         selectable: false, evented: false,
       });
       canvas.add(activeObj);
@@ -1259,7 +1302,7 @@ function saveEdit(e) {
       activeObj = new fabric.Arrow({
         x1: ptr.x, y1: ptr.y,
         x2: ptr.x + 1, y2: ptr.y,
-        stroke: currentColor, strokeWidth: currentStroke,
+        stroke: currentColor, strokeWidth: currentStroke * ANNOT_SCALE,
         selectable: false, evented: false,
       });
       canvas.add(activeObj);

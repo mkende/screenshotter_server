@@ -232,6 +232,66 @@ func TestInsertImage_AndGetImage(t *testing.T) {
 	}
 }
 
+// An image carries how many of its pixels cover one CSS pixel of the page it
+// came from, so the view page can show it at the size it appeared.
+func TestInsertImage_PixelRatio(t *testing.T) {
+	for _, b := range allBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			if err := b.db.UpsertUser(ctx, "ratio-owner", "Owner", ""); err != nil {
+				t.Fatalf("UpsertUser: %v", err)
+			}
+
+			cases := []struct {
+				id    string
+				store float64
+				want  float64
+			}{
+				{"ratio-2", 2, 2},
+				{"ratio-frac", 1.5, 1.5},
+				{"ratio-small", 0.5, 0.5},
+				// Unset, as every caller that does not care about the scale
+				// leaves it, and as rows predating the column read back.
+				{"ratio-unset", 0, 1},
+				{"ratio-negative", -3, 1},
+			}
+			for _, c := range cases {
+				err := b.db.InsertImage(ctx, Image{
+					ID: c.id, OwnerID: "ratio-owner", FilePath: c.id + ".png",
+					PixelRatio: c.store,
+				})
+				if err != nil {
+					t.Fatalf("InsertImage %s: %v", c.id, err)
+				}
+				got, err := b.db.GetImage(ctx, c.id)
+				if err != nil {
+					t.Fatalf("GetImage %s: %v", c.id, err)
+				}
+				if got == nil {
+					t.Fatalf("%s: expected image, got nil", c.id)
+				}
+				if got.PixelRatio != c.want {
+					t.Errorf("%s: PixelRatio got %v, want %v", c.id, got.PixelRatio, c.want)
+				}
+			}
+
+			// The listing carries it too: it selects its own column set.
+			imgs, err := b.db.ListRecentImages(ctx, "ratio-owner", 10, 0)
+			if err != nil {
+				t.Fatalf("ListRecentImages: %v", err)
+			}
+			if len(imgs) != len(cases) {
+				t.Fatalf("expected %d images, got %d", len(cases), len(imgs))
+			}
+			for _, img := range imgs {
+				if img.PixelRatio <= 0 {
+					t.Errorf("%s: listed PixelRatio is %v, want a positive scale", img.ID, img.PixelRatio)
+				}
+			}
+		})
+	}
+}
+
 func TestGetImage_NotFound_ReturnsNil(t *testing.T) {
 	for _, b := range allBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
