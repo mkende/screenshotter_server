@@ -170,6 +170,11 @@
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
     pointer-events: none;
   }
+  /* While the toolbar is hidden, the annotated image replaces the canvas, so
+     that right-clicking it offers "Copy image" and "Save image as" on the
+     real thing: the canvas on top in Fabric only holds selection handles. */
+  #annotated-shot { position: absolute; z-index: 1; max-width: none; }
+  #annotated-shot[hidden] { display: none; }
 
   /* ── Annotation toolbar ─────────────────────────────── */
   #toolbar {
@@ -450,6 +455,7 @@
   <div id="canvas-wrap">
     <div id="image-shadow"></div>
     <canvas id="c"></canvas>
+    <img id="annotated-shot" alt="screenshot" hidden>
   </div>
   {{else}}
   <img id="screenshot" src="/{{.Image.ID}}.png" alt="screenshot">
@@ -591,24 +597,43 @@ function saveEdit(e) {
     btnCopyImage.remove();
   } else {
     btnCopyImage.addEventListener('click', function () {
-      // The owner's latest annotations are uploaded first, so the copy
-      // matches what is on screen. The ClipboardItem is built synchronously
-      // around a promise of the image: Safari only allows the write within
-      // the click, and Chrome accepts it the same way.
-      var annotationsSaved = window.annotationEditor ? window.annotationEditor.save() : Promise.resolve();
-      var png = annotationsSaved.then(function () {
-        return fetch('/{{.Image.ID}}.png', { credentials: 'same-origin', cache: 'no-cache' });
-      }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.blob();
-      }).then(function (blob) {
-        return blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
-      });
+      // The ClipboardItem is built within the click around a promise of the
+      // image: Safari only allows the write there, and Chrome accepts it the
+      // same way. The image is taken from the page when it has it, so the
+      // copy is what is on screen and costs no download.
+      var editor = window.annotationEditor;
+      var png = (editor && editor.imageBlob()) || shownImageBlob() || fetchImageBlob();
       navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]).then(function () {
         showToast('Image copied to clipboard');
       }, function (err) {
         showToast('Could not copy the image' + (err && err.message ? ': ' + err.message : '.'), true);
       });
+    });
+  }
+
+  // The viewer's image, re-encoded from the copy the page already holds; null
+  // while it has not loaded.
+  function shownImageBlob() {
+    var img = document.getElementById('screenshot');
+    if (!img || !img.complete || !img.naturalWidth) return null;
+    return new Promise(function (resolve, reject) {
+      var c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      c.toBlob(function (blob) {
+        if (blob) resolve(blob);
+        else reject(new Error('could not read the image'));
+      }, 'image/png');
+    });
+  }
+
+  function fetchImageBlob() {
+    return fetch('/{{.Image.ID}}.png', { credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.blob();
+    }).then(function (blob) {
+      return blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
     });
   }
 
@@ -823,6 +848,7 @@ function saveEdit(e) {
     historyIndex = 0;
     savedRev = history[0].rev;
     updateHistoryButtons();
+    if (!editing) showAnnotatedShot();
   }
 
   function layoutCanvas() {
@@ -838,6 +864,7 @@ function saveEdit(e) {
     var shadow = document.getElementById('image-shadow');
     shadow.style.left = dx + 'px';
     shadow.style.top = dy + 'px';
+    placeAnnotatedShot();
   }
 
   // Returns the part of the scene shown by the canvas, in scene coordinates.
@@ -962,6 +989,9 @@ function saveEdit(e) {
     if (!enabled) {
       canvas.selection = false;
       canvas.hoverCursor = 'default';
+      showAnnotatedShot();
+    } else {
+      hideAnnotatedShot();
     }
     canvas.requestRenderAll();
   }
@@ -1485,7 +1515,7 @@ function saveEdit(e) {
   }
 
   // Renders the background and the snapshot's annotations, cropped to their
-  // bounding box, to a PNG blob. Done on an offscreen canvas so the live one
+  // bounding box (in scene coordinates, returned with it), to a PNG blob. Done on an offscreen canvas so the live one
   // (selection handles, an object being drawn) is left alone.
   function renderSnapshot(snap) {
     return new Promise(function (resolve, reject) {
@@ -1493,14 +1523,71 @@ function saveEdit(e) {
       off.add(new fabric.Image(background.getElement(), { left: background.left, top: background.top }));
       fabric.util.enlivenObjects(snap.objects, function (objs) {
         objs.forEach(function (o) { off.add(o); });
-        var crop = off.toCanvasElement(1, getContentBoundingBox(off));
+        var box = getContentBoundingBox(off);
+        var crop = off.toCanvasElement(1, box);
         off.dispose();
         crop.toBlob(function (blob) {
-          if (blob) resolve(blob);
+          if (blob) resolve({ rev: snap.rev, blob: blob, box: box });
           else reject(new Error('could not render the image'));
         }, 'image/png');
       });
     });
+  }
+
+  // The latest rendering, reused for a snapshot rendered already: the upload,
+  // the Copy image button and the image shown while the toolbar is hidden all
+  // want the same PNG, and none of them needs to fetch it from the server.
+  let lastRender = null;
+
+  function renderCurrent() {
+    var snap = history[historyIndex];
+    if (lastRender && lastRender.rev === snap.rev) return Promise.resolve(lastRender);
+    return renderSnapshot(snap).then(function (r) {
+      if (!lastRender || history[historyIndex].rev === r.rev) lastRender = r;
+      return r;
+    });
+  }
+
+  // A text being typed is only recorded when its editing ends.
+  function finishTextEditing() {
+    var obj = canvas.getActiveObject();
+    if (obj && obj.isEditing) obj.exitEditing();
+  }
+
+  // ── Image shown while the toolbar is hidden ───────────
+  var shot = document.getElementById('annotated-shot');
+
+  function showAnnotatedShot() {
+    if (!background) return;  // initCanvas calls this again once loaded
+    renderCurrent().then(function (r) {
+      if (editing) return;
+      if (shot.src) URL.revokeObjectURL(shot.src);
+      shot.dataset.box = JSON.stringify(r.box);
+      shot.onload = function () {
+        if (editing) return;
+        placeAnnotatedShot();
+        shot.hidden = false;
+        canvas.wrapperEl.style.visibility = 'hidden';
+      };
+      shot.src = URL.createObjectURL(r.blob);
+    });
+  }
+
+  function hideAnnotatedShot() {
+    shot.onload = null;
+    shot.hidden = true;
+    canvas.wrapperEl.style.visibility = '';
+  }
+
+  // Lays the image over the part of the scene it was rendered from.
+  function placeAnnotatedShot() {
+    if (!shot.dataset.box) return;
+    var box = JSON.parse(shot.dataset.box);
+    var vpt = canvas.viewportTransform;
+    shot.style.left = vpt[4] + box.left * vpt[0] + 'px';
+    shot.style.top = vpt[5] + box.top * vpt[0] + 'px';
+    shot.style.width = box.width * vpt[0] + 'px';
+    shot.style.height = box.height * vpt[0] + 'px';
   }
 
   // ── Upload ────────────────────────────────────────────
@@ -1537,7 +1624,7 @@ function saveEdit(e) {
     uploading = true;
     saveError = null;
     setStatus('saving');
-    renderSnapshot(snap).then(upload).then(function () {
+    renderCurrent().then(function (r) { return upload(r.blob); }).then(function () {
       savedRev = snap.rev;
     }, function (err) {
       saveError = err.message;
@@ -1620,6 +1707,13 @@ function saveEdit(e) {
     },
     // Makes the canvas editable (the toolbar is shown) or inert (hidden).
     setEditing: setEditing,
+    // A promise of the image as it is on screen, annotations included and
+    // rendered locally; null until the image has loaded.
+    imageBlob: function () {
+      if (!background) return null;
+      finishTextEditing();
+      return renderCurrent().then(function (r) { return r.blob; });
+    },
   };
 
   // ── Keyboard shortcuts ────────────────────────────────
