@@ -247,6 +247,30 @@
   #save-status[data-state="failed"] { color: #cc0f35; }
   /* Their display rules would otherwise win over the hidden attribute. */
   #save-status[hidden], #save-retry[hidden] { display: none; }
+
+  /* Short confirmation at the bottom of the page (a copied link or image),
+     which fades out by itself. */
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: 1.5rem;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    border-radius: 6px;
+    background: #363636;
+    color: #fff;
+    font-size: 0.875rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, 0.5rem);
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  #toast.is-shown { opacity: 1; transform: translate(-50%, 0); }
+  #toast.is-error { background: #cc0f35; }
 </style>
 {{end}}
 
@@ -427,6 +451,10 @@
   <img id="screenshot" src="/{{.Image.ID}}.png" alt="screenshot">
   {{end}}
 </div>
+<div id="toast" role="status" aria-live="polite">
+  <span class="icon is-small"><i class="fa"></i></span>
+  <span id="toast-text"></span>
+</div>
 </main>
 
 <script nonce="{{.Nonce}}">
@@ -465,6 +493,18 @@ function copyText(text, btn) {
       setTimeout(() => { span.textContent = orig; }, 1500);
     }
   });
+}
+
+// Shows a short notice at the bottom of the page, which fades out by itself.
+var toastTimer = null;
+function showToast(message, isError) {
+  var toast = document.getElementById('toast');
+  toast.querySelector('i').className = isError ? 'fa fa-triangle-exclamation' : 'fa fa-check';
+  document.getElementById('toast-text').textContent = message;
+  toast.classList.toggle('is-error', !!isError);
+  toast.classList.add('is-shown');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { toast.classList.remove('is-shown'); }, isError ? 5000 : 2500);
 }
 
 function deleteImage(id) {
@@ -508,6 +548,14 @@ function saveEdit(e) {
 }
 
 (function () {
+  // The extension lands here with #copied once it has put this page's link on
+  // the clipboard. The fragment is dropped from the address bar so it never
+  // ends up in a bookmark or a link copied from there.
+  if (location.hash === '#copied') {
+    history.replaceState(history.state, '', location.pathname + location.search);
+    showToast('Link copied to clipboard');
+  }
+
   var btnCopySource = document.getElementById('btn-copy-source');
   if (btnCopySource) {
     btnCopySource.addEventListener('click', function () {
