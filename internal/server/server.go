@@ -50,7 +50,7 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	r.Use(chimw.RequestID)
 	r.Use(mw.RequestLogger(logger))
 	r.Use(chimw.Recoverer)
-	// CORS before DomainRedirect so that preflight OPTIONS from the Chrome
+	// CORS before DomainRedirect so that preflight OPTIONS from the
 	// extension receives a proper 204 with headers even when the request
 	// arrives on a non-canonical host.
 	r.Use(corsMiddleware(cfg))
@@ -228,20 +228,18 @@ func embeddedFaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFileFS(w, r, static.Files, "favicon.ico")
 }
 
-// corsMiddleware sets CORS headers for requests from registered extension
-// origins. Non-matching origins are passed through unchanged, which is
-// important because the Chrome extension's Origin header starts with
-// chrome-extension:// and same-origin browser requests have no Origin.
+// corsMiddleware sets CORS headers for requests from allowed extension
+// origins (see mw.ExtensionOriginMatcher). Non-matching origins are passed
+// through unchanged, which is important because the extension's Origin header
+// starts with chrome-extension:// or moz-extension:// and same-origin browser
+// requests have no Origin.
 func corsMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
-	allowed := make(map[string]struct{}, len(cfg.CORS.ExtensionIDs))
-	for _, id := range cfg.CORS.ExtensionIDs {
-		allowed["chrome-extension://"+id] = struct{}{}
-	}
+	isExtension := mw.ExtensionOriginMatcher(cfg)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			if _, ok := allowed[origin]; ok {
+			if isExtension(origin) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Vary", "Origin")

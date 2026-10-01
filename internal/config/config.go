@@ -133,10 +133,15 @@ type SessionConfig struct {
 	RenewalDelay TOMLDuration `toml:"renewal_delay"`
 }
 
-// CORSConfig lists the Chrome extension IDs allowed to make credentialed
+// CORSConfig lists the browser extensions allowed to make credentialed
 // cross-origin requests (required for extension uploads).
 type CORSConfig struct {
+	// ExtensionIDs are the Chrome extension IDs allowed.
 	ExtensionIDs []string `toml:"extension_ids"`
+	// AllowFirefoxExtensions allows every Firefox extension. Firefox gives
+	// each installation of an extension its own random origin
+	// (moz-extension://<uuid>), so they cannot be listed one by one.
+	AllowFirefoxExtensions bool `toml:"allow_firefox_extensions"`
 }
 
 // IDConfig controls the length of generated image IDs.
@@ -243,7 +248,7 @@ type Config struct {
 	// Session holds session cookie settings.
 	Session SessionConfig `toml:"session"`
 
-	// CORS holds cross-origin settings for the Chrome extension.
+	// CORS holds cross-origin settings for the browser extension.
 	CORS CORSConfig `toml:"cors"`
 
 	// ID controls the length of generated image IDs.

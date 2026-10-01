@@ -105,7 +105,7 @@ storage_path = "/var/lib/screenshotter/images"
 # page_size = 20
 
 # ---------------------------------------------------------------------------
-# CORS (Chrome extension uploads)
+# CORS (extension uploads)
 # ---------------------------------------------------------------------------
 
 [cors]
@@ -113,6 +113,12 @@ storage_path = "/var/lib/screenshotter/images"
 # Multiple IDs can be listed (e.g. dev + production builds). The default below
 # matches the screenshotter Chrome extension.
 extension_ids = ["nnipkgjcfgekggpkclhdghbbfnpokdlg"]
+
+# Allow the Firefox extension. Firefox gives every installation of an
+# extension a random origin, so it cannot be listed by ID: this allows *all*
+# Firefox extensions, including any other the user has installed. Websites
+# still cannot upload. Default: false.
+allow_firefox_extensions = true
 
 # ---------------------------------------------------------------------------
 # Database
