@@ -133,17 +133,6 @@ type SessionConfig struct {
 	RenewalDelay TOMLDuration `toml:"renewal_delay"`
 }
 
-// CORSConfig lists the browser extensions allowed to make credentialed
-// cross-origin requests (required for extension uploads).
-type CORSConfig struct {
-	// ExtensionIDs are the Chrome extension IDs allowed.
-	ExtensionIDs []string `toml:"extension_ids"`
-	// AllowFirefoxExtensions allows every Firefox extension. Firefox gives
-	// each installation of an extension its own random origin
-	// (moz-extension://<uuid>), so they cannot be listed one by one.
-	AllowFirefoxExtensions bool `toml:"allow_firefox_extensions"`
-}
-
 // IDConfig controls the length of generated image IDs.
 type IDConfig struct {
 	Length int `toml:"length"`
@@ -248,9 +237,6 @@ type Config struct {
 	// Session holds session cookie settings.
 	Session SessionConfig `toml:"session"`
 
-	// CORS holds cross-origin settings for the browser extension.
-	CORS CORSConfig `toml:"cors"`
-
 	// ID controls the length of generated image IDs.
 	ID IDConfig `toml:"id"`
 
@@ -259,6 +245,10 @@ type Config struct {
 
 	// RateLimit controls the per-IP rate limiter on the image routes.
 	RateLimit RateLimitConfig `toml:"ratelimit"`
+
+	// Warnings are about the config file rather than errors in it (obsolete
+	// keys, say), for the caller to log once its logger is set up.
+	Warnings []string `toml:"-"`
 }
 
 // TOMLDuration is a time.Duration that unmarshals from a TOML string like "720h".
@@ -306,6 +296,16 @@ func (c *Config) AnyAuthEnabled() bool {
 	return c.Anonymous.Enabled || c.Tailscale.Enabled || c.ProxyAuth.Enabled || c.OIDC.Enabled
 }
 
+// obsoleteKeys are configuration keys that the server used to read and now
+// ignores, so that a config file written for an older version still loads.
+// Each maps to the warning logged when it is set, or to "" for a table whose
+// only keys are listed separately.
+var obsoleteKeys = map[string]string{
+	"cors": "",
+	"cors.extension_ids": "cors.extension_ids is ignored and can be removed: " +
+		"uploads are accepted from any browser extension",
+}
+
 // Load parses the TOML config at path, applies defaults, resolves secrets, and
 // validates the result.
 func Load(path string) (*Config, error) {
@@ -318,7 +318,17 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing config file %q: %w", path, err)
 	}
-	if unknown := meta.Undecoded(); len(unknown) > 0 {
+	var unknown []toml.Key
+	for _, key := range meta.Undecoded() {
+		if warning, ok := obsoleteKeys[key.String()]; ok {
+			if warning != "" {
+				cfg.Warnings = append(cfg.Warnings, warning)
+			}
+			continue
+		}
+		unknown = append(unknown, key)
+	}
+	if len(unknown) > 0 {
 		return nil, fmt.Errorf("parsing config file %q: unknown configuration key(s): %v", path, unknown)
 	}
 

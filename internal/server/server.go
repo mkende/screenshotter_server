@@ -53,7 +53,7 @@ func New(cfg *config.Config, h *handlers.Handlers, oidcHandler *auth.OIDCHandler
 	// CORS before DomainRedirect so that preflight OPTIONS from the
 	// extension receives a proper 204 with headers even when the request
 	// arrives on a non-canonical host.
-	r.Use(corsMiddleware(cfg))
+	r.Use(corsMiddleware)
 	r.Use(mw.DomainRedirect(cfg))
 	r.Use(mw.SecurityHeaders(cfg))
 
@@ -228,33 +228,27 @@ func embeddedFaviconHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFileFS(w, r, static.Files, "favicon.ico")
 }
 
-// corsMiddleware sets CORS headers for requests from allowed extension
-// origins (see mw.ExtensionOriginMatcher). Non-matching origins are passed
-// through unchanged, which is important because the extension's Origin header
-// starts with chrome-extension:// or moz-extension:// and same-origin browser
-// requests have no Origin.
-func corsMiddleware(cfg *config.Config) func(http.Handler) http.Handler {
-	isExtension := mw.ExtensionOriginMatcher(cfg)
+// corsMiddleware sets CORS headers for requests from browser extensions (see
+// mw.IsExtensionOrigin). Other origins are passed through unchanged, which
+// is important because same-origin browser requests have no Origin.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if mw.IsExtensionOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Vary", "Origin")
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if isExtension(origin) {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Vary", "Origin")
-
-				if r.Method == http.MethodOptions {
-					w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-					w.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
-						"Content-Type", "Accept", mw.MutationHeader,
-					}, ", "))
-					w.Header().Set("Access-Control-Max-Age", "86400")
-					w.WriteHeader(http.StatusNoContent)
-					return
-				}
+			if r.Method == http.MethodOptions {
+				w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", strings.Join([]string{
+					"Content-Type", "Accept", mw.MutationHeader,
+				}, ", "))
+				w.Header().Set("Access-Control-Max-Age", "86400")
+				w.WriteHeader(http.StatusNoContent)
+				return
 			}
-			next.ServeHTTP(w, r)
-		})
-	}
+		}
+		next.ServeHTTP(w, r)
+	})
 }

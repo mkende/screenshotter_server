@@ -48,6 +48,9 @@ func run(configPath string) error {
 
 	logger := newLogger(cfg.LogLevel)
 	slog.SetDefault(logger)
+	for _, warning := range cfg.Warnings {
+		logger.Warn(warning, "config", configPath)
+	}
 
 	tmpls, err := tmpl.Parse()
 	if err != nil {

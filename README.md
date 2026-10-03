@@ -174,29 +174,6 @@ admin_groups = ["screenshotter-admins"]
 `admin_groups` matches against the OIDC groups claim or the configured proxy
 groups header.
 
-### CORS / extension ID
-
-```toml
-[cors]
-extension_ids = ["nnipkgjcfgekggpkclhdghbbfnpokdlg"]
-```
-
-The default value matches the published Chrome extension. If you load the
-extension unpacked (development builds), replace it with the ID shown at
-`chrome://extensions`. Multiple IDs can be listed to support dev and
-production builds simultaneously.
-
-```toml
-[cors]
-allow_firefox_extensions = true
-```
-
-Needed for the Firefox extension; off by default. Firefox gives each
-installation of an extension its own random origin, so it cannot be listed
-by ID: this allows *every* Firefox extension the user has installed to make
-credentialed requests to the server, not only Screenshotter. Websites still
-cannot.
-
 ### Optional settings
 
 - **`listen_addr`** — TCP address the server binds to. Default: `0.0.0.0:8080`.

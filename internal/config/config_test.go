@@ -365,3 +365,39 @@ func TestFaviconFile(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_ValidConfigHasNoWarnings(t *testing.T) {
+	cfg, err := Load(writeConfig(t, validBase()))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Errorf("expected no warnings, got: %q", cfg.Warnings)
+	}
+}
+
+func TestLoad_ObsoleteExtensionIDsIgnoredWithWarning(t *testing.T) {
+	path := writeConfig(t, validBase()+`
+[cors]
+extension_ids = ["nnipkgjcfgekggpkclhdghbbfnpokdlg"]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("expected the obsolete key to be accepted, got: %v", err)
+	}
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "cors.extension_ids") {
+		t.Errorf("expected one warning about cors.extension_ids, got: %q", cfg.Warnings)
+	}
+}
+
+func TestLoad_UnknownKeyBesideObsoleteOneStillRejected(t *testing.T) {
+	path := writeConfig(t, validBase()+`
+[cors]
+extension_ids = ["nnipkgjcfgekggpkclhdghbbfnpokdlg"]
+allowed_origins = ["https://example.org"]
+`)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "cors.allowed_origins") {
+		t.Errorf("expected an unknown-key error naming cors.allowed_origins, got: %v", err)
+	}
+}
