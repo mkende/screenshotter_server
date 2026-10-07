@@ -1,7 +1,8 @@
 # Screenshotter server
 
-Go HTTP server that pairs with the
-[Screenshotter Chrome extension](https://chromewebstore.google.com/detail/nnipkgjcfgekggpkclhdghbbfnpokdlg) to receive
+Go HTTP server that pairs with the Screenshotter extension (for
+[Chrome](https://chromewebstore.google.com/detail/nnipkgjcfgekggpkclhdghbbfnpokdlg)
+and [Firefox](https://addons.mozilla.org/firefox/addon/screenshotter/)) to receive
 browser screenshots, store them on disk, and serve a web UI for browsing and
 annotating them. See also the
 [Slack bridge](https://github.com/mkende/screenshotter_slack_bridge), which
