@@ -70,6 +70,9 @@ type pageData struct {
 	// Nonce is the per-request CSP nonce. Every <script> tag in the templates
 	// must carry nonce="{{.Nonce}}" for the script-src policy to permit it.
 	Nonce string
+	// Firefox is set when the request's User-Agent is Firefox's, so that the
+	// footer links to the Firefox extension instead of the Chrome one.
+	Firefox bool
 }
 
 // newPageData returns a pageData populated with the common fields.
@@ -85,7 +88,15 @@ func (h *Handlers) newPageData(r *http.Request) pageData {
 		Version:     version.Version,
 		IconURL:     iconURL,
 		Nonce:       mw.NonceFromContext(r.Context()),
+		Firefox:     isFirefox(r.UserAgent()),
 	}
+}
+
+// isFirefox reports whether userAgent is that of a desktop or Android Firefox,
+// which can install the Firefox extension. Firefox on iOS ("FxiOS") cannot,
+// and does not match. Other browsers never claim "Firefox/".
+func isFirefox(userAgent string) bool {
+	return strings.Contains(userAgent, "Firefox/")
 }
 
 // renderTemplate executes the named page template, writing 500 on failure.
@@ -97,6 +108,8 @@ func (h *Handlers) renderTemplate(w http.ResponseWriter, page string, data any) 
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// The footer's extension link depends on the browser (pageData.Firefox).
+	w.Header().Add("Vary", "User-Agent")
 	if err := t.ExecuteTemplate(w, "base", data); err != nil {
 		slog.Error("render template", "page", page, "err", err)
 		// Headers may already be sent; best-effort log only.

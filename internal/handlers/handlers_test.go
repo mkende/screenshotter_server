@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"testing"
 
@@ -646,6 +647,37 @@ func TestView_RealTemplate_EditorOnlyForOwner(t *testing.T) {
 	}
 	if !strings.Contains(visitor, `id="screenshot"`) {
 		t.Error("visitor page lacks the plain image")
+	}
+}
+
+// TestView_RealTemplate_FooterExtensionLink checks that the footer links
+// Firefox users to the Firefox extension and everyone else to the Chrome one.
+func TestView_RealTemplate_FooterExtensionLink(t *testing.T) {
+	h, database, stor := newHandlers(t)
+	tmpls, err := tmpl.Parse()
+	if err != nil {
+		t.Fatalf("tmpl.Parse: %v", err)
+	}
+	h.tmpls = tmpls
+	setupImageForUser(t, database, stor, "img-view-ua", "owner@example.com")
+
+	cases := map[string]string{
+		"Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0":                                "Get the Firefox extension",
+		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36": "Get the Chrome extension",
+		"": "Get the Chrome extension",
+	}
+	for ua, want := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/img-view-ua", nil)
+		req.Header.Set("User-Agent", ua)
+		req = chiRequest(req, map[string]string{"id": "img-view-ua"})
+
+		rr := executeAs(t, h.View, req, "owner@example.com")
+		if body := rr.Body.String(); !strings.Contains(body, want) {
+			t.Errorf("User-Agent %q: footer should say %q", ua, want)
+		}
+		if vary := rr.Header().Values("Vary"); !slices.Contains(vary, "User-Agent") {
+			t.Errorf("User-Agent %q: Vary should include User-Agent, got %v", ua, vary)
+		}
 	}
 }
 
