@@ -8,6 +8,14 @@
   <link rel="stylesheet" href="/assets/bulma-1.0.2.min.css">
   <link rel="stylesheet" href="/assets/font-awesome-6.5.0.min.css">
   <style>
+    /* The brand title and the user name use the font of the screenshotter.org
+       navbar (Hextra's system-ui stack, the title extra-bold), so the server
+       and the website brand alike. */
+    .navbar-brand .brand-title, #user-menu .navbar-link, #user-menu .user-name {
+      font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    }
+    .navbar-brand .brand-title { font-weight: 800; }
+    #user-menu .navbar-link, #user-menu .user-name { font-weight: 600; }
     /* In the burger layout Bulma lists a dropdown's items inline, so the
        user menu's own title is redundant there (the first item repeats the
        name). Pages may force the desktop layout with is-desktop. */
@@ -20,8 +28,8 @@
 <body style="display:flex;flex-direction:column;min-height:100vh">
   <nav class="navbar is-white has-shadow" role="navigation" aria-label="main navigation">
     <div class="navbar-brand">
-      <a class="navbar-item has-text-weight-semibold is-size-5" href="/" title="{{.Title}}">
-        {{block "brand" .}}<img src="{{.IconURL}}" alt="{{.Title}}"><span class="ml-2">{{.Title}}</span>{{end}}
+      <a class="navbar-item is-size-5" href="/" title="{{.Title}}">
+        {{block "brand" .}}<img src="{{.IconURL}}" alt="{{.Title}}"><span class="ml-2 brand-title">{{.Title}}</span>{{end}}
       </a>
       <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMenu">
         <span aria-hidden="true"></span>
@@ -39,7 +47,7 @@
           <div class="navbar-dropdown is-right">
             <div class="navbar-item">
               <div>
-                <p class="has-text-weight-semibold">{{.User.DisplayName}}</p>
+                <p class="user-name">{{.User.DisplayName}}</p>
                 <p class="is-size-7 has-text-grey">{{.User.Email}}</p>
               </div>
             </div>
