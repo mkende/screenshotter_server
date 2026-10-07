@@ -232,6 +232,18 @@
   .stroke-btn:hover { background: #e8e8e8; }
   .stroke-btn.is-active { background: #dbedff; border-color: #3273dc; }
   .stroke-line { background: #333; border-radius: 2px; width: 24px; }
+  /* The stroke buttons, or the font size ones while text is drawn or
+     selected: the two take turns in the same spot. */
+  .size-group { display: flex; align-items: center; gap: 4px; }
+  .size-group[hidden] { display: none; }
+  .font-step { font-family: serif; font-weight: 700; color: #333; line-height: 1; }
+  #font-size-value {
+    min-width: 2rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: #555;
+    font-variant-numeric: tabular-nums;
+  }
 
   /* Right-aligned: the save status and the button hiding the toolbar. */
   #toolbar-end {
@@ -391,8 +403,14 @@
   <button class="tool-btn" data-tool="rect" title="Rectangle (R)">
     <i class="fa-regular fa-square" style="font-size:14px"></i>
   </button>
+  <button class="tool-btn" data-tool="ellipse" title="Oval (O)">
+    <i class="fa-regular fa-circle" style="font-size:14px"></i>
+  </button>
   <button class="tool-btn" data-tool="arrow" title="Arrow (A)">
     <i class="fa fa-arrow-right"></i>
+  </button>
+  <button class="tool-btn" data-tool="darrow" title="Double arrow (D)">
+    <i class="fa fa-arrows-left-right"></i>
   </button>
   <button class="tool-btn" data-tool="text" title="Text (T)">
     <span style="font-weight:700;font-size:17px;font-family:serif">T</span>
@@ -414,15 +432,27 @@
   <hr class="tool-sep">
 
   <!-- Stroke width -->
-  <button class="stroke-btn" data-sw="2" title="Thin">
-    <div class="stroke-line" style="height:2px"></div>
-  </button>
-  <button class="stroke-btn is-active" data-sw="4" title="Medium">
-    <div class="stroke-line" style="height:4px"></div>
-  </button>
-  <button class="stroke-btn" data-sw="7" title="Thick">
-    <div class="stroke-line" style="height:7px"></div>
-  </button>
+  <div id="stroke-group" class="size-group">
+    <button class="stroke-btn" data-sw="2" title="Thin">
+      <div class="stroke-line" style="height:2px"></div>
+    </button>
+    <button class="stroke-btn is-active" data-sw="4" title="Medium">
+      <div class="stroke-line" style="height:4px"></div>
+    </button>
+    <button class="stroke-btn" data-sw="7" title="Thick">
+      <div class="stroke-line" style="height:7px"></div>
+    </button>
+  </div>
+  <!-- Font size, in place of the stroke width for text -->
+  <div id="font-size-group" class="size-group" hidden>
+    <button id="font-smaller" class="stroke-btn" title="Smaller text (-)">
+      <span class="font-step" style="font-size:12px">A</span>
+    </button>
+    <span id="font-size-value" title="Font size">20</span>
+    <button id="font-larger" class="stroke-btn" title="Larger text (+)">
+      <span class="font-step" style="font-size:20px">A</span>
+    </button>
+  </div>
 
   <hr class="tool-sep">
 
@@ -795,12 +825,16 @@ function saveEdit(e) {
   // dropped. Three screen pixels' worth, whatever the capture's density; this
   // used to guess that density from the viewer's own screen.
   const MIN_SHAPE_PX = 3 * ANNOT_SCALE;
+  // The font sizes the toolbar steps through, in the same units as strokes.
+  const FONT_SIZES = [10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 64, 80];
+  const DEFAULT_FONT_SIZE = 20;
 
   // ── State ────────────────────────────────────────────
   let editing = true;    // false while the toolbar is hidden: the canvas is inert
   let currentTool = 'select';
   let currentColor = '#ef4444';
   let currentStroke = 4;
+  let currentFontSize = DEFAULT_FONT_SIZE;
   let isDrawing = false;
   let drawStart = null;
   let activeObj = null;  // object being drawn (preview)
@@ -810,8 +844,10 @@ function saveEdit(e) {
   let selectedObj = null;
   let savedColor = null;    // ambient color when selection started
   let savedStroke = null;   // ambient stroke when selection started
+  let savedFontSize = null; // ambient font size when selection started
   let colorChangedDuringSel = false;
   let strokeChangedDuringSel = false;
+  let fontSizeChangedDuringSel = false;
 
   // ── Canvas init ──────────────────────────────────────
   const canvas = new fabric.Canvas('c', {
@@ -997,9 +1033,14 @@ function saveEdit(e) {
   }
 
   function setTool(tool) {
-    if (currentTool === 'select' && tool !== 'select') {
+    // Leaving a tool ends what it had selected (in select mode, or the text
+    // just typed with the text tool): its handles must not linger, and the
+    // toolbar must not edit it any more.
+    if (tool !== currentTool) {
+      canvas.discardActiveObject();
       restoreToolbarIfNeeded();
       selectedObj = null;
+      canvas.requestRenderAll();
     }
     currentTool = tool;
     canvas.isDrawingMode = false;
@@ -1012,13 +1053,25 @@ function saveEdit(e) {
       }
     });
 
-    var cursors = { select: 'default', rect: 'crosshair', arrow: 'crosshair', text: 'text' };
+    var cursors = {
+      select: 'default', rect: 'crosshair', ellipse: 'crosshair',
+      arrow: 'crosshair', darrow: 'crosshair', text: 'text',
+    };
     canvas.defaultCursor = cursors[tool] || 'default';
     canvas.hoverCursor = (tool === 'select') ? 'move' : (cursors[tool] || 'default');
 
     document.querySelectorAll('.tool-btn[data-tool]').forEach(function (btn) {
       btn.classList.toggle('is-active', btn.dataset.tool === tool);
     });
+    updateSizeControls();
+  }
+
+  // Text has a font size instead of a stroke width: the toolbar shows the
+  // font size buttons while the text tool is on or a text is selected.
+  function updateSizeControls() {
+    var text = currentTool === 'text' || (selectedObj && selectedObj.type === 'i-text');
+    document.getElementById('stroke-group').hidden = !!text;
+    document.getElementById('font-size-group').hidden = !text;
   }
 
   function setColor(color) {
@@ -1043,6 +1096,29 @@ function saveEdit(e) {
     }
   }
 
+  function setFontSize(size) {
+    currentFontSize = size;
+    showFontSizeInToolbar(size);
+    setCookie('annotate_font_size', String(size));
+    if (selectedObj && selectedObj.type === 'i-text') {
+      fontSizeChangedDuringSel = true;
+      applyFontSizeToObject(selectedObj, size);
+      commit();
+    }
+  }
+
+  // Moves to the next larger (dir > 0) or smaller font size of FONT_SIZES.
+  function stepFontSize(dir) {
+    var next = currentFontSize;
+    if (dir > 0) {
+      next = FONT_SIZES.find(function (s) { return s > currentFontSize; }) || FONT_SIZES[FONT_SIZES.length - 1];
+    } else {
+      var smaller = FONT_SIZES.filter(function (s) { return s < currentFontSize; });
+      next = smaller.length ? smaller[smaller.length - 1] : FONT_SIZES[0];
+    }
+    if (next !== currentFontSize) setFontSize(next);
+  }
+
   // ── Wire toolbar buttons ─────────────────────────────
   document.querySelectorAll('.tool-btn[data-tool]').forEach(function (btn) {
     btn.addEventListener('click', function () { setTool(btn.dataset.tool); });
@@ -1053,6 +1129,8 @@ function saveEdit(e) {
   document.querySelectorAll('.stroke-btn[data-sw]').forEach(function (btn) {
     btn.addEventListener('click', function () { setStroke(parseInt(btn.dataset.sw, 10)); });
   });
+  document.getElementById('font-smaller').addEventListener('click', function () { stepFontSize(-1); });
+  document.getElementById('font-larger').addEventListener('click', function () { stepFontSize(1); });
   document.getElementById('undo-btn').addEventListener('click', undo);
   document.getElementById('redo-btn').addEventListener('click', redo);
   document.getElementById('delete-btn').addEventListener('click', deleteSelected);
@@ -1074,11 +1152,14 @@ function saveEdit(e) {
       var strokeBtn = document.querySelector('.stroke-btn[data-sw="' + sw + '"]');
       if (strokeBtn) setStroke(sw);
     }
+    var fontSize = parseInt(getCookie('annotate_font_size'), 10);
+    if (FONT_SIZES.indexOf(fontSize) !== -1) setFontSize(fontSize);
   }());
 
   // ── Arrow class ──────────────────────────────────────
   // Custom Fabric object that renders a shaft + filled arrowhead from two endpoints
-  // (x1,y1) and (x2,y2) stored in canvas-absolute coordinates. Translation of the
+  // (x1,y1) and (x2,y2) stored in canvas-absolute coordinates; with startHead
+  // set (the double arrow tool) there is a second arrowhead at (x1,y1). Translation of the
   // whole arrow is the only Fabric transform allowed; rotation/scaling are locked,
   // and endpoint movement is exposed through two custom corner controls (ep1/ep2).
   var Arrow = fabric.util.createClass(fabric.Object, {
@@ -1091,6 +1172,7 @@ function saveEdit(e) {
     lockSkewingY: true,
     objectCaching: false,
     fill: null,
+    startHead: false,
 
     initialize: function (options) {
       options = options || {};
@@ -1102,12 +1184,18 @@ function saveEdit(e) {
       this._updateGeometry();
     },
 
-    // Returns the points needed to render the arrow given current x1/y1/x2/y2 and strokeWidth.
+    // Returns the points needed to render the arrow given current x1/y1/x2/y2 and
+    // strokeWidth: the shaft runs from (lx1,ly1) to (lx2,ly2), the head at
+    // (x2,y2) has its wings at hw1/hw2, and the one at (x1,y1), if any, at
+    // ht1/ht2 (set to the start point otherwise, which keeps them out of the
+    // bounding box).
     _arrowGeom: function () {
       var ang = Math.atan2(this.y2 - this.y1, this.x2 - this.x1);
       var hs = Math.max(14 * ANNOT_SCALE, this.strokeWidth * 4);
       var bo = hs * Math.cos(Math.PI / 6);
-      return {
+      var g = {
+        lx1: this.x1, ly1: this.y1,
+        ht1x: this.x1, ht1y: this.y1, ht2x: this.x1, ht2y: this.y1,
         lx2: this.x2 - bo * Math.cos(ang),
         ly2: this.y2 - bo * Math.sin(ang),
         hw1x: this.x2 - hs * Math.cos(ang - Math.PI / 6),
@@ -1115,6 +1203,15 @@ function saveEdit(e) {
         hw2x: this.x2 - hs * Math.cos(ang + Math.PI / 6),
         hw2y: this.y2 - hs * Math.sin(ang + Math.PI / 6),
       };
+      if (this.startHead) {
+        g.lx1 = this.x1 + bo * Math.cos(ang);
+        g.ly1 = this.y1 + bo * Math.sin(ang);
+        g.ht1x = this.x1 + hs * Math.cos(ang - Math.PI / 6);
+        g.ht1y = this.y1 + hs * Math.sin(ang - Math.PI / 6);
+        g.ht2x = this.x1 + hs * Math.cos(ang + Math.PI / 6);
+        g.ht2y = this.y1 + hs * Math.sin(ang + Math.PI / 6);
+      }
+      return g;
     },
 
     // Folds any pending translation (left/top moved since last geometry update) into
@@ -1140,10 +1237,10 @@ function saveEdit(e) {
     _updateGeometry: function () {
       var g = this._arrowGeom();
       var pad = this.strokeWidth / 2;
-      var minX = Math.min(this.x1, this.x2, g.hw1x, g.hw2x) - pad;
-      var minY = Math.min(this.y1, this.y2, g.hw1y, g.hw2y) - pad;
-      var maxX = Math.max(this.x1, this.x2, g.hw1x, g.hw2x) + pad;
-      var maxY = Math.max(this.y1, this.y2, g.hw1y, g.hw2y) + pad;
+      var minX = Math.min(this.x1, this.x2, g.hw1x, g.hw2x, g.ht1x, g.ht2x) - pad;
+      var minY = Math.min(this.y1, this.y2, g.hw1y, g.hw2y, g.ht1y, g.ht2y) - pad;
+      var maxX = Math.max(this.x1, this.x2, g.hw1x, g.hw2x, g.ht1x, g.ht2x) + pad;
+      var maxY = Math.max(this.y1, this.y2, g.hw1y, g.hw2y, g.ht1y, g.ht2y) + pad;
       this.set({ left: minX, top: minY, width: maxX - minX, height: maxY - minY });
       this._geomLeft = minX;
       this._geomTop = minY;
@@ -1163,7 +1260,7 @@ function saveEdit(e) {
       ctx.strokeStyle = this.stroke;
       ctx.lineWidth = this.strokeWidth;
       ctx.beginPath();
-      ctx.moveTo(this.x1 - cx, this.y1 - cy);
+      ctx.moveTo(g.lx1 - cx, g.ly1 - cy);
       ctx.lineTo(g.lx2 - cx, g.ly2 - cy);
       ctx.stroke();
 
@@ -1173,6 +1270,12 @@ function saveEdit(e) {
       ctx.lineTo(g.hw1x - cx, g.hw1y - cy);
       ctx.lineTo(g.hw2x - cx, g.hw2y - cy);
       ctx.closePath();
+      if (this.startHead) {
+        ctx.moveTo(this.x1 - cx, this.y1 - cy);
+        ctx.lineTo(g.ht1x - cx, g.ht1y - cy);
+        ctx.lineTo(g.ht2x - cx, g.ht2y - cy);
+        ctx.closePath();
+      }
       ctx.fill();
       ctx.restore();
     },
@@ -1189,7 +1292,10 @@ function saveEdit(e) {
       }
       var g = this._arrowGeom();
       var margin = Math.max(this.strokeWidth / 2 + 3 * ANNOT_SCALE, 6 * ANNOT_SCALE);
-      if (pointToSegmentDistance(point.x, point.y, this.x1, this.y1, g.lx2, g.ly2) <= margin) {
+      if (pointToSegmentDistance(point.x, point.y, g.lx1, g.ly1, g.lx2, g.ly2) <= margin) {
+        return true;
+      }
+      if (this.startHead && pointInTriangle(point.x, point.y, this.x1, this.y1, g.ht1x, g.ht1y, g.ht2x, g.ht2y)) {
         return true;
       }
       return pointInTriangle(point.x, point.y, this.x2, this.y2, g.hw1x, g.hw1y, g.hw2x, g.hw2y);
@@ -1207,6 +1313,7 @@ function saveEdit(e) {
       object.y1 = this.y1 + dy;
       object.x2 = this.x2 + dx;
       object.y2 = this.y2 + dy;
+      if (this.startHead) object.startHead = true;
       return object;
     },
   });
@@ -1238,12 +1345,17 @@ function saveEdit(e) {
   fabric.Arrow = Arrow;
 
   // ── Endpoint controls (replace the default 8 BB handles with two square endpoints) ──
+  // Fabric's finalMatrix undoes the viewport zoom (it expects offsets that
+  // are already zoomed, like its own controls' dim), so the scene-unit offset
+  // to the endpoint is zoomed here; without that, the handles of an image
+  // shown at another scale (a HiDPI capture) sit away from the endpoints.
   function arrowEndpointPositionHandler(propX, propY) {
     return function (dim, finalMatrix, fabricObject) {
+      var vpt = fabricObject.getViewportTransform();
       var cx = fabricObject._geomLeft + fabricObject.width / 2;
       var cy = fabricObject._geomTop + fabricObject.height / 2;
       return fabric.util.transformPoint(
-        { x: fabricObject[propX] - cx, y: fabricObject[propY] - cy },
+        { x: (fabricObject[propX] - cx) * vpt[0], y: (fabricObject[propY] - cy) * vpt[3] },
         finalMatrix
       );
     };
@@ -1290,10 +1402,17 @@ function saveEdit(e) {
     });
   }
 
+  function showFontSizeInToolbar(size) {
+    document.getElementById('font-size-value').textContent = size;
+    document.getElementById('font-smaller').disabled = size <= FONT_SIZES[0];
+    document.getElementById('font-larger').disabled = size >= FONT_SIZES[FONT_SIZES.length - 1];
+  }
+
   // ── Read/write color and stroke on canvas objects ────
   function getObjectColor(obj) {
     if (obj.type === 'arrow') return obj.stroke;
     if (obj.type === 'rect' && obj.fill === 'transparent') return obj.stroke;
+    if (obj.type === 'ellipse') return obj.stroke;
     if (obj.type === 'i-text') return obj.fill;
     return null;
   }
@@ -1303,13 +1422,27 @@ function saveEdit(e) {
   function getObjectStrokeWidth(obj) {
     if (obj.type === 'arrow') return Math.round(obj.strokeWidth / ANNOT_SCALE);
     if (obj.type === 'rect' && obj.fill === 'transparent') return Math.round(obj.strokeWidth / ANNOT_SCALE);
+    if (obj.type === 'ellipse') return Math.round(obj.strokeWidth / ANNOT_SCALE);
     return null;
+  }
+
+  // The size a text shows at, in toolbar units: a text can also have been
+  // resized with its handles, which scales it rather than its font size.
+  function getObjectFontSize(obj) {
+    if (obj.type !== 'i-text') return null;
+    return Math.round(obj.fontSize * obj.scaleY / ANNOT_SCALE);
+  }
+
+  function applyFontSizeToObject(obj, size) {
+    obj.set({ fontSize: size * ANNOT_SCALE / obj.scaleY });
+    obj.setCoords();
+    canvas.renderAll();
   }
 
   function applyColorToObject(obj, color) {
     if (obj.type === 'arrow') {
       obj.set({ stroke: color });
-    } else if (obj.type === 'rect' && obj.fill === 'transparent') {
+    } else if ((obj.type === 'rect' && obj.fill === 'transparent') || obj.type === 'ellipse') {
       obj.set({ stroke: color });
     } else if (obj.type === 'i-text') {
       obj.set({ fill: color });
@@ -1325,7 +1458,7 @@ function saveEdit(e) {
       // Arrowhead size depends on strokeWidth, so the bounding box must be recomputed.
       obj._updateGeometry();
       canvas.renderAll();
-    } else if (obj.type === 'rect' && obj.fill === 'transparent') {
+    } else if ((obj.type === 'rect' && obj.fill === 'transparent') || obj.type === 'ellipse') {
       obj.set({ strokeWidth: sw * ANNOT_SCALE });
       canvas.renderAll();
     }
@@ -1338,12 +1471,16 @@ function saveEdit(e) {
     selectedObj = obj;
     savedColor = currentColor;
     savedStroke = currentStroke;
+    savedFontSize = currentFontSize;
     colorChangedDuringSel = false;
     strokeChangedDuringSel = false;
+    fontSizeChangedDuringSel = false;
     var c = getObjectColor(obj);
     var s = getObjectStrokeWidth(obj);
+    var f = getObjectFontSize(obj);
     if (c !== null) { currentColor = c; showColorInToolbar(c); }
     if (s !== null) { currentStroke = s; showStrokeInToolbar(s); }
+    if (f !== null) { currentFontSize = f; showFontSizeInToolbar(f); }
   }
 
   // Restores pre-selection toolbar values for any dimension the user did not change
@@ -1352,10 +1489,13 @@ function saveEdit(e) {
     if (savedColor === null) return;
     if (!colorChangedDuringSel) { currentColor = savedColor; showColorInToolbar(savedColor); }
     if (!strokeChangedDuringSel) { currentStroke = savedStroke; showStrokeInToolbar(savedStroke); }
+    if (!fontSizeChangedDuringSel) { currentFontSize = savedFontSize; showFontSizeInToolbar(savedFontSize); }
     savedColor = null;
     savedStroke = null;
+    savedFontSize = null;
     colorChangedDuringSel = false;
     strokeChangedDuringSel = false;
+    fontSizeChangedDuringSel = false;
   }
 
   // ── Drawing events ───────────────────────────────────
@@ -1368,7 +1508,7 @@ function saveEdit(e) {
       var placeholder = 'Text';
       var text = new fabric.IText(placeholder, {
         left: ptr.x, top: ptr.y,
-        fontSize: 20 * ANNOT_SCALE,
+        fontSize: currentFontSize * ANNOT_SCALE,
         fontFamily: FONT_NAME,
         fill: currentColor,
         selectable: true, evented: true,
@@ -1402,6 +1542,14 @@ function saveEdit(e) {
         selectable: false, evented: false,
       });
       canvas.add(activeObj);
+    } else if (currentTool === 'ellipse') {
+      activeObj = new fabric.Ellipse({
+        left: ptr.x, top: ptr.y, rx: 0.5, ry: 0.5,
+        fill: 'transparent',
+        stroke: currentColor, strokeWidth: currentStroke * ANNOT_SCALE,
+        selectable: false, evented: false,
+      });
+      canvas.add(activeObj);
     } else if (currentTool === 'redact') {
       activeObj = new fabric.Rect({
         left: ptr.x, top: ptr.y, width: 1, height: 1,
@@ -1409,10 +1557,11 @@ function saveEdit(e) {
         selectable: false, evented: false,
       });
       canvas.add(activeObj);
-    } else if (currentTool === 'arrow') {
+    } else if (currentTool === 'arrow' || currentTool === 'darrow') {
       activeObj = new fabric.Arrow({
         x1: ptr.x, y1: ptr.y,
         x2: ptr.x + 1, y2: ptr.y,
+        startHead: currentTool === 'darrow',
         stroke: currentColor, strokeWidth: currentStroke * ANNOT_SCALE,
         selectable: false, evented: false,
       });
@@ -1431,7 +1580,15 @@ function saveEdit(e) {
         width: Math.abs(ptr.x - drawStart.x),
         height: Math.abs(ptr.y - drawStart.y),
       });
-    } else if (currentTool === 'arrow') {
+    } else if (currentTool === 'ellipse') {
+      // Drawn like a rectangle: the oval fits the box dragged out.
+      activeObj.set({
+        left: Math.min(drawStart.x, ptr.x),
+        top: Math.min(drawStart.y, ptr.y),
+        rx: Math.abs(ptr.x - drawStart.x) / 2,
+        ry: Math.abs(ptr.y - drawStart.y) / 2,
+      });
+    } else if (currentTool === 'arrow' || currentTool === 'darrow') {
       activeObj.set({ x2: ptr.x, y2: ptr.y });
       activeObj._updateGeometry();
     }
@@ -1477,6 +1634,7 @@ function saveEdit(e) {
     if (objs.length === 1) onObjectSelected(objs[0]);
     else selectedObj = null;
     updateDeleteBtn();
+    updateSizeControls();
   });
 
   canvas.on('selection:updated', function () {
@@ -1485,12 +1643,14 @@ function saveEdit(e) {
     if (objs.length === 1) onObjectSelected(objs[0]);
     else selectedObj = null;
     updateDeleteBtn();
+    updateSizeControls();
   });
 
   canvas.on('selection:cleared', function () {
     restoreToolbarIfNeeded();
     selectedObj = null;
     updateDeleteBtn();
+    updateSizeControls();
   });
 
   // ── Rendering a snapshot ──────────────────────────────
@@ -1736,9 +1896,15 @@ function saveEdit(e) {
     if (!e.ctrlKey && !e.metaKey && !e.altKey) {
       if (e.key === 'v' || e.key === 'Escape') { setTool('select'); return; }
       if (e.key === 'r') { setTool('rect'); return; }
+      if (e.key === 'o') { setTool('ellipse'); return; }
       if (e.key === 'a') { setTool('arrow'); return; }
+      if (e.key === 'd') { setTool('darrow'); return; }
       if (e.key === 't') { setTool('text'); return; }
       if (e.key === 'x') { setTool('redact'); return; }
+      if (e.key === '-' || e.key === '+' || e.key === '=') {
+        if (!document.getElementById('font-size-group').hidden) stepFontSize(e.key === '-' ? -1 : 1);
+        return;
+      }
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       var active = canvas.getActiveObject();
