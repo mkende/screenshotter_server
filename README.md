@@ -116,8 +116,10 @@ enabled = true
 ```
 
 **Tailscale** — identity is read from `Tailscale-User-Login` and
-`Tailscale-User-Name` headers injected by a trusted Tailscale proxy. Requires
-`trusted_proxy` to list the CIDRs the proxy connects from.
+`Tailscale-User-Name` headers injected by a trusted Tailscale proxy (the avatar
+comes from `Tailscale-User-Profile-Pic`, the picture of the user's Tailscale
+login). Non-ASCII values, which Tailscale RFC 2047-encodes, are decoded.
+Requires `trusted_proxy` to list the CIDRs the proxy connects from.
 
 ```toml
 trusted_proxy = ["100.64.0.0/10", "fd7a:115c:a1e0::/48"]

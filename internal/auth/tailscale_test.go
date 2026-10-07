@@ -139,3 +139,34 @@ func TestTailscale_Disabled_NoOp(t *testing.T) {
 		t.Error("next handler not invoked")
 	}
 }
+
+// tailscale serve Q-encodes non-ASCII header values (RFC 2047).
+func TestTailscale_EncodedHeadersAreDecoded(t *testing.T) {
+	id := runTailscaleMiddleware(t, nil, "127.0.0.1:1234", map[string]string{
+		"Tailscale-User-Login": "=?utf-8?q?ren=C3=A9@example.com?=",
+		"Tailscale-User-Name":  "=?utf-8?q?Ren=C3=A9_Lef=C3=A8vre?=",
+	})
+	if id == nil {
+		t.Fatal("expected identity, got nil")
+	}
+	if id.Email != "rené@example.com" {
+		t.Errorf("Email: got %q, want %q", id.Email, "rené@example.com")
+	}
+	if id.DisplayName != "René Lefèvre" {
+		t.Errorf("DisplayName: got %q, want %q", id.DisplayName, "René Lefèvre")
+	}
+}
+
+func TestTailscale_MalformedEncodingKeptAsIs(t *testing.T) {
+	const raw = "=?unknown-charset?q?abc?="
+	id := runTailscaleMiddleware(t, nil, "127.0.0.1:1234", map[string]string{
+		"Tailscale-User-Login": "alice@example.com",
+		"Tailscale-User-Name":  raw,
+	})
+	if id == nil {
+		t.Fatal("expected identity, got nil")
+	}
+	if id.DisplayName != raw {
+		t.Errorf("DisplayName: got %q, want %q", id.DisplayName, raw)
+	}
+}

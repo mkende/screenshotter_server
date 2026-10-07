@@ -42,9 +42,9 @@ func ProxyAuthMiddleware(cfg *config.Config, logger *slog.Logger) func(http.Hand
 			}
 
 			// Prefer the dedicated email header; fall back to the user header.
-			email := r.Header.Get(cfg.ProxyAuth.EmailHeader)
+			email := identityHeader(r, cfg.ProxyAuth.EmailHeader)
 			if email == "" {
-				email = r.Header.Get(cfg.ProxyAuth.UserHeader)
+				email = identityHeader(r, cfg.ProxyAuth.UserHeader)
 			}
 			if email == "" {
 				logger.DebugContext(r.Context(), "proxy_auth: trusted IP but no identity headers present",
@@ -57,10 +57,10 @@ func ProxyAuthMiddleware(cfg *config.Config, logger *slog.Logger) func(http.Hand
 
 			id := &Identity{
 				Email:       email,
-				DisplayName: r.Header.Get(cfg.ProxyAuth.NameHeader),
+				DisplayName: identityHeader(r, cfg.ProxyAuth.NameHeader),
 				Source:      AuthSourceProxy,
 			}
-			if raw := r.Header.Get(cfg.ProxyAuth.GroupsHeader); raw != "" {
+			if raw := identityHeader(r, cfg.ProxyAuth.GroupsHeader); raw != "" {
 				id.Groups = splitGroups(raw)
 			}
 			id.IsAdmin = isAdmin(cfg, id)

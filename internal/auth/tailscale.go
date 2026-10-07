@@ -30,7 +30,7 @@ func TailscaleMiddleware(cfg *config.Config, logger *slog.Logger) func(http.Hand
 				next.ServeHTTP(w, r)
 				return
 			}
-			login := r.Header.Get("Tailscale-User-Login")
+			login := identityHeader(r, "Tailscale-User-Login")
 			if login == "" {
 				logger.DebugContext(r.Context(), "tailscale: no Tailscale-User-Login header; headers are only injected by `tailscale serve` HTTP proxy mode, not TCPForward")
 				next.ServeHTTP(w, r)
@@ -47,14 +47,14 @@ func TailscaleMiddleware(cfg *config.Config, logger *slog.Logger) func(http.Hand
 				}
 			}
 
-			name := r.Header.Get("Tailscale-User-Name")
+			name := identityHeader(r, "Tailscale-User-Name")
 			if name == "" {
 				name = login
 			}
 			id := &Identity{
 				Email:       login,
 				DisplayName: name,
-				AvatarURL:   r.Header.Get("Tailscale-User-Profile-Pic"),
+				AvatarURL:   identityHeader(r, "Tailscale-User-Profile-Pic"),
 				Source:      AuthSourceTailscale,
 			}
 			id.IsAdmin = isAdmin(cfg, id)
