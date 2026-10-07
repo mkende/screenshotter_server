@@ -826,7 +826,7 @@ function saveEdit(e) {
   // used to guess that density from the viewer's own screen.
   const MIN_SHAPE_PX = 3 * ANNOT_SCALE;
   // The font sizes the toolbar steps through, in the same units as strokes.
-  const FONT_SIZES = [10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 64, 80];
+  const FONT_SIZES = [6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 64, 80];
   const DEFAULT_FONT_SIZE = 20;
 
   // ── State ────────────────────────────────────────────
@@ -1433,8 +1433,23 @@ function saveEdit(e) {
     return Math.round(obj.fontSize * obj.scaleY / ANNOT_SCALE);
   }
 
+  // Text is outlined so it reads on any background: a thin stroke painted
+  // under the fill, so only its outer half shows around each glyph. White,
+  // except around white text, which gets a black one. Its width follows the
+  // font size (fontSize is in image pixels, so the density is included).
+  const TEXT_OUTLINE_RATIO = 0.15;
+  function textOutline(color, fontSize) {
+    return {
+      stroke: color.toLowerCase() === '#ffffff' ? '#111111' : '#ffffff',
+      strokeWidth: fontSize * TEXT_OUTLINE_RATIO,
+      strokeLineJoin: 'round',
+      paintFirst: 'stroke',
+    };
+  }
+
   function applyFontSizeToObject(obj, size) {
-    obj.set({ fontSize: size * ANNOT_SCALE / obj.scaleY });
+    var fontSize = size * ANNOT_SCALE / obj.scaleY;
+    obj.set(Object.assign({ fontSize: fontSize }, textOutline(obj.fill, fontSize)));
     obj.setCoords();
     canvas.renderAll();
   }
@@ -1445,7 +1460,7 @@ function saveEdit(e) {
     } else if ((obj.type === 'rect' && obj.fill === 'transparent') || obj.type === 'ellipse') {
       obj.set({ stroke: color });
     } else if (obj.type === 'i-text') {
-      obj.set({ fill: color });
+      obj.set(Object.assign({ fill: color }, textOutline(color, obj.fontSize)));
     }
     canvas.renderAll();
   }
@@ -1506,13 +1521,13 @@ function saveEdit(e) {
 
     if (currentTool === 'text') {
       var placeholder = 'Text';
-      var text = new fabric.IText(placeholder, {
+      var text = new fabric.IText(placeholder, Object.assign({
         left: ptr.x, top: ptr.y,
         fontSize: currentFontSize * ANNOT_SCALE,
         fontFamily: FONT_NAME,
         fill: currentColor,
         selectable: true, evented: true,
-      });
+      }, textOutline(currentColor, currentFontSize * ANNOT_SCALE)));
       canvas.add(text);
       canvas.setActiveObject(text);
       text.enterEditing();

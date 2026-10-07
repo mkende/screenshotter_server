@@ -170,3 +170,21 @@ func TestTailscale_MalformedEncodingKeptAsIs(t *testing.T) {
 		t.Errorf("DisplayName: got %q, want %q", id.DisplayName, raw)
 	}
 }
+
+// Raw UTF-8 (as some forward-auth proxies send it) has no encoded-words and
+// passes through the decoder unchanged.
+func TestTailscale_RawUTF8Unchanged(t *testing.T) {
+	id := runTailscaleMiddleware(t, nil, "127.0.0.1:1234", map[string]string{
+		"Tailscale-User-Login": "rené@example.com",
+		"Tailscale-User-Name":  "René Lefèvre",
+	})
+	if id == nil {
+		t.Fatal("expected identity, got nil")
+	}
+	if id.Email != "rené@example.com" {
+		t.Errorf("Email: got %q, want %q", id.Email, "rené@example.com")
+	}
+	if id.DisplayName != "René Lefèvre" {
+		t.Errorf("DisplayName: got %q, want %q", id.DisplayName, "René Lefèvre")
+	}
+}
